@@ -411,7 +411,64 @@ function selfHealAuthor() {
 }
 
 /* ---------- render ---------- */
+function keepReadingState(draw) {
+  const composerKey = el => JSON.stringify([el.dataset.ctx || '', el.dataset.composer]);
+  function detailKey(el) {
+    const screen = el.closest('[id^="scr-"], #sheetIn');
+    const match = el.closest('.mcard');
+    const button = match && match.querySelector('[data-act="wcComment"]');
+    return JSON.stringify([screen ? screen.id : '', button ? button.dataset.key : '', el.querySelector('summary')?.textContent || '']);
+  }
+  const forms = new Map(), expanded = new Map();
+  const active = document.activeElement;
+  let focus = null;
+  const scrollX = window.scrollX, scrollY = window.scrollY;
+  const sheet = document.querySelector('#sheet');
+  const sheetScroll = sheet ? sheet.scrollTop : 0;
+  document.querySelectorAll('[data-composer]').forEach(box => {
+    const key = composerKey(box), fields = {};
+    box.querySelectorAll('[data-f]').forEach(input => {
+      fields[input.dataset.f] = input.value;
+      if (input === active) focus = {key, field: input.dataset.f, start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection};
+    });
+    forms.set(key, {fields, type: box.querySelector('[data-act="cmType"].on')?.dataset.v || 'develop'});
+  });
+  document.querySelectorAll('details').forEach(el => {
+    const key = detailKey(el);
+    if (!expanded.has(key)) expanded.set(key, []);
+    expanded.get(key).push(el.open);
+  });
+  draw();
+  const offsets = new Map();
+  document.querySelectorAll('details').forEach(el => {
+    const key = detailKey(el), index = offsets.get(key) || 0;
+    offsets.set(key, index + 1);
+    const states = expanded.get(key);
+    if (states && index < states.length) el.open = states[index];
+  });
+  let focusTarget = null;
+  document.querySelectorAll('[data-composer]').forEach(box => {
+    const key = composerKey(box), saved = forms.get(key);
+    if (!saved) return;
+    box.querySelectorAll('[data-f]').forEach(input => {
+      if (Object.prototype.hasOwnProperty.call(saved.fields, input.dataset.f)) input.value = saved.fields[input.dataset.f];
+      if (focus && focus.key === key && focus.field === input.dataset.f) focusTarget = input;
+    });
+    if (box.querySelector('[data-act="cmType"]')) {
+      box.querySelectorAll('[data-act="cmType"]').forEach(button => button.classList.toggle('on', button.dataset.v === saved.type));
+      box.querySelectorAll('[data-part]').forEach(part => { part.hidden = part.dataset.part !== saved.type; });
+    }
+  });
+  if (focusTarget) {
+    focusTarget.focus({preventScroll: true});
+    if (typeof focus.start === 'number') focusTarget.setSelectionRange(focus.start, focus.end, focus.direction || 'none');
+  }
+  if (sheet) sheet.scrollTop = sheetScroll;
+  window.scrollTo(scrollX, scrollY);
+}
+
 function render() {
+  keepReadingState(() => {
   refreshComments();
   if (!S.ready) return;
   $('#tabAdmin').hidden = !isOps();
@@ -422,6 +479,7 @@ function render() {
   ({ board: renderBoard, compose: renderCompose, worldcup: renderWorldcup, pk: renderPk, results: renderResults, admin: renderAdmin })[S.tab]();
   if (S.openCard) renderDetail();
   if (S.pkOpen && S.pkEntries.length) selfHealEntryAuthor();
+  });
 }
 function renderHeader() {
   const w = $('#weekBox');
@@ -671,7 +729,11 @@ async function sendComment(btn) {
     const meta = Object.assign({}, S.meta); meta.comments = Object.assign({}, meta.comments || {}); meta.comments[ref.id] = true; meta.likes = meta.likes || {};
     await S.db.doc('users/' + S.uid + '/private/meta').set(meta);
     // Authorship was committed atomically with the comment.
-    box.querySelectorAll('textarea,input').forEach(i => i.value = '');
+    document.querySelectorAll('[data-composer]').forEach(current => {
+      if (current.dataset.composer === cardId && current.dataset.ctx === box.dataset.ctx) {
+        current.querySelectorAll('textarea,input').forEach(input => { input.value = ''; });
+      }
+    });
     toast('익명으로 남겼습니다');
   } catch (e) { toast('남기지 못했습니다: ' + (e.code || e.message)); }
   S.busy = false;
