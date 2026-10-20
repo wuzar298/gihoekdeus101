@@ -252,19 +252,23 @@ function thumbSVG(t1, t2) {
   const s1 = sz(t1), s2 = sz(t2), y2 = 164, y1 = y2 - s2 - 8;
   return `<svg class="thumb" viewBox="0 0 320 180" role="img" aria-label="${esc(t1)} ${esc(t2)}"><rect width="320" height="180" fill="#0E0D0C"/><rect width="320" height="180" fill="url(#tg)"/><text x="14" y="${y1}" font-size="${s1}" class="t1">${esc(t1 || '')}</text><text x="14" y="${y2}" font-size="${s2}" class="t2">${esc(t2 || '')}</text></svg>`;
 }
-/* rounds are keyed by the worldcup day (YYYY-MM-DD, device local time); phase follows the clock, with an admin override for the current round */
+/* Rounds use Korean dates. A manual phase override pins its round until an operator restores automatic scheduling. */
 const pad = n => String(n).padStart(2, '0');
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseISO = s => { const p = String(s || '').split('-').map(Number); return p.length === 3 && !isNaN(p[0]) ? new Date(p[0], p[1] - 1, p[2]) : new Date(); };
 const wcDays = () => { const s = S.settings; return (s && Array.isArray(s.wcDays) && s.wcDays.length) ? s.wcDays : [2, 5]; };
 function nextWcDate(from, inclusive) { const d = new Date(from.getFullYear(), from.getMonth(), from.getDate()); if (!inclusive) d.setDate(d.getDate() + 1); for (let i = 0; i < 14; i++) { if (wcDays().includes(d.getDay())) return iso(d); d.setDate(d.getDate() + 1); } return iso(d); }
 const koreaNow = () => new Date(new Date().toLocaleString('en-US', {timeZone: 'Asia/Seoul'}));
-const curWeek = () => nextWcDate(koreaNow(), true);
+const forcedRound = () => {
+  const s = S.settings;
+  return s && ['upload', 'worldcup', 'results'].includes(s.override) && /^\d{4}-\d{2}-\d{2}$/.test(s.overrideRound || '') ? s.overrideRound : null;
+};
+const curWeek = () => forcedRound() || nextWcDate(koreaNow(), true);
 const nextRound = w => nextWcDate(parseISO(w), false);
 function phase() {
   const s = S.settings; if (!s) return 'upload';
   const now = koreaNow(), cur = curWeek();
-  if (s.override && s.overrideRound === cur) return s.override;
+  if (forcedRound()) return s.override;
   if (iso(now) !== cur) return 'upload';
   return now.getHours() < (s.endHour ?? 18) ? 'worldcup' : 'results';
 }
@@ -512,7 +516,7 @@ function renderBoard() {
   const mineN = countMine(w);
   let html = `<div class="stack">
     <div class="between"><h2>${esc(weekLabel(w))} 월드컵 카드 <span class="muted num" style="font-weight:400">${pool.length}/${cap}</span></h2><span class="pill ${mineN >= myLimit() ? 'good' : ''}">내 카드 ${mineN}/${myLimit()}</span></div>
-    <p class="small muted">${esc(S.settings.schedule || '')}</p>`;
+    <p class="small muted">${forcedRound() ? `회차·단계 고정 중 · ${esc(weekLabel(w))} · ${PHASE[phase()]} · 운영자가 ‘자동으로’를 누를 때까지 유지됩니다.` : esc(S.settings.schedule || '')}</p>`;
   if (S.canWrite === false) html += `<div class="note">보기 전용 권한입니다. 카드를 올리거나 월드컵을 하려면 계란님에게 '편집자' 권한으로 다시 초대해 달라고 하세요.</div>`;
   if (urgent.length) html += `<h3 style="margin-top:4px">긴급 카드 <span class="muted small" style="font-weight:400">월드컵 없이 바로 회의 안건</span></h3><div class="feed">${urgent.map(tileHTML).join('')}</div>`;
   html += pool.length
@@ -883,7 +887,7 @@ function renderWorldcup() {
   if (!run || run.weekId !== w) {
     el.innerHTML = `<div class="stack"><h2>기획 월드컵 <span class="muted small" style="font-weight:400">${esc(weekLabel(w))}</span></h2>
       <div class="card stack"><div class="roundhead"><div class="big">${pool.length}<em>강</em></div><span class="pill">완료 ${doneN}명</span></div>
-      <p class="muted small">내 카드를 뺀 ${pool.length}장으로 한 판. 첫 라운드는 썸네일·제목·로그라인·누가 왜 누르나만 보고, ${S.settings.detailFrom || 2}라운드부터 카드 전체를 보고 코멘트를 남길 수 있습니다. 10~15분 걸리고, 오늘 ${S.settings.endHour ?? 18}:00까지 끝내야 합산됩니다.</p>
+      <p class="muted small">내 카드를 뺀 ${pool.length}장으로 한 판. 첫 라운드는 썸네일·제목·로그라인·누가 왜 누르나만 보고, ${S.settings.detailFrom || 2}라운드부터 카드 전체를 보고 코멘트를 남길 수 있습니다. 10~15분 걸리고, ${forcedRound() ? '운영자가 수동으로 마감하기 전까지' : `오늘 ${S.settings.endHour ?? 18}:00까지`} 끝내야 합산됩니다.</p>
       <ul class="small muted" style="margin:0;padding-left:18px"><li>n번째 통과에 n점 (최대 5점). 전원 합산으로 순위가 나옵니다.</li><li>'둘 다 통과'는 라운드마다 ${S.settings.dualPass ?? 2}회, 4강부터는 없습니다.</li><li>중간에 나가도 이어서 할 수 있습니다.</li></ul>
       <button class="btn primary wide" data-act="startRun" ${S.canWrite === false || pool.length < 2 ? 'disabled' : ''}>시작하기</button></div></div>`;
     return;
@@ -1136,7 +1140,7 @@ function renderResults() {
   if (!S.resultsWeek || !weeks.includes(S.resultsWeek)) S.resultsWeek = weeks[0] || null;
   const doneN = doneCount('week',w);
   let html = `<div class="stack"><div class="between"><h2>결과</h2>${weeks.length > 1 ? `<select id="rw" data-act="pickWeek">${weeks.map(x => `<option value="${x}" ${x === S.resultsWeek ? 'selected' : ''}>${esc(weekLabel(x))}</option>`).join('')}</select>` : ''}</div>`;
-  if (ph === 'worldcup') html += `<div class="note">${esc(weekLabel(w))} 월드컵 진행 중 · 완료 ${doneN}명. ${S.settings.endHour ?? 18}:00에 전원 합산으로 열립니다.</div>`;
+  if (ph === 'worldcup') html += `<div class="note">${esc(weekLabel(w))} 월드컵 진행 중 · 완료 ${doneN}명. ${forcedRound() ? '현재 회차는 운영자가 마감할 때까지 유지됩니다.' : `정규 마감은 ${S.settings.endHour ?? 18}:00입니다.`} 결과는 운영자가 집계·공개한 뒤 확인할 수 있습니다.</div>`;
   if (!isOps() && weeks.some(x => !S.publicResults['w_'+x])) html += '<div class="note">공개 집계가 아직 없습니다. 계란님 또는 우재가 관리 탭에서 결과를 집계·공개해주세요.</div>';
   if (weeks.length === 0) html += `<div class="empty"><b>아직 결과가 없습니다</b>첫 월드컵이 끝나면 여기에 순위가 나옵니다.</div></div>`;
   if (!S.resultsWeek) { el.innerHTML = html + '</div>'; return; }
@@ -1172,14 +1176,14 @@ async function renderAdmin() {
   const el = $('#scr-admin'); const s = S.settings; const w = curWeek(); const ph = phase();
   const runIds = S.runs.map(r => r.id);
   const doneIds = S.runs.filter(r => r.weeks && r.weeks[w]).map(r => r.id);
-  const forced = s.override && s.overrideRound === w;
+  const forced = !!forcedRound();
   const upcoming = [w, nextRound(w), nextRound(nextRound(w))].map(weekLabel).join(' · ');
   el.innerHTML = `<div class="stack">
     <h2>관리</h2>
     <div class="card stack"><h3>전체 집계 · 계란님/운영자</h3><p class="small muted">현재 회차 유효 투표 ${standings(w).n}명. 개인별 원점수를 그대로 믿지 않고 대진·선택 기록으로 다시 계산합니다. 마감 후 아래 버튼으로 멤버용 결과를 공개합니다.</p><details><summary>현재 회차 집계 확인</summary>${standings(w).rows.map((r,i)=>`<p class="small">${i+1}. ${esc(r.card.title)} · ${r.norm.toFixed(1)}점</p>`).join('')}</details><button class="btn primary" data-act="publishResults">마감된 결과 전체 집계·공개</button><p class="small muted">투표 원본을 읽는 운영자는 작성자를 추정할 여지가 있으므로 신뢰된 계정만 지정하세요.</p></div>
     <div class="card stack"><div class="between"><h3>지금 단계 · ${esc(weekLabel(w))}</h3><span class="pill on">${PHASE[ph]}${forced ? ' (강제)' : ''}</span></div>
       <p class="small muted">단계는 시간으로 자동 바뀝니다. 월드컵 요일 00:00부터 ${s.endHour ?? 18}:00까지 월드컵, 그 뒤 자정까지 결과 공개, 나머지는 카드 모집입니다. 다음 월드컵: ${esc(upcoming)}</p>
-      <details class="more"><summary>이번 회차만 단계 강제 (마감 연장 등)</summary><div class="row" style="margin-top:8px">${['upload', 'worldcup', 'results'].map(x => `<button class="btn sm ${forced && s.override === x ? 'primary' : ''}" data-act="override" data-v="${x}">${PHASE[x]}</button>`).join('')}<button class="btn sm ghost" data-act="override" data-v="">자동으로</button></div><p class="small muted" style="margin-top:6px">강제한 단계는 다음 회차가 되면 자동으로 풀립니다.</p></details></div>
+      <details class="more"><summary>회차·단계 고정 (수동 마감·연장)</summary><div class="row" style="margin-top:8px">${['upload', 'worldcup', 'results'].map(x => `<button class="btn sm ${forced && s.override === x ? 'primary' : ''}" data-act="override" data-v="${x}">${PHASE[x]}</button>`).join('')}<button class="btn sm ghost" data-act="override" data-v="">자동으로</button></div><p class="small muted" style="margin-top:6px">고정 중에는 날짜나 마감 시각이 지나도 같은 회차와 단계가 유지됩니다. ‘결과 공개’로 투표를 마감한 뒤 위의 ‘마감된 결과 전체 집계·공개’를 눌러 결과를 게시하세요. ‘자동으로’를 누르면 회차 고정을 해제하고 현재 날짜의 정규 일정으로 돌아갑니다.</p></details></div>
     <div class="card stack"><h3>이번 회차 참여 <span class="muted small" style="font-weight:400">월드컵 완료 ${doneIds.length}명</span></h3>
       ${runIds.length ? `<table class="plain">${runIds.map(id => `<tr><td data-name="${esc(id)}">…</td><td>${doneIds.includes(id) ? '<span class="pill good">완료</span>' : '<span class="pill">미완료</span>'}</td></tr>`).join('')}</table>` : '<p class="small muted">아직 월드컵을 한 사람이 없습니다.</p>'}
       <div id="adminAuthors"></div></div>
@@ -1195,7 +1199,7 @@ async function renderAdmin() {
       <div class="two"><div class="field"><label for="s_dualPass">둘 다 통과 (라운드당)</label><input id="s_dualPass" type="number" min="0" max="10" value="${s.dualPass ?? 2}"></div><div class="field"><label for="s_detailFrom">상세 공개 라운드</label><input id="s_detailFrom" type="number" min="1" max="6" value="${s.detailFrom ?? 2}"></div></div>
       <div class="two"><div class="field"><label for="s_pkPerPerson">썸네일 배틀 1인 시안 수</label><input id="s_pkPerPerson" type="number" min="1" max="10" value="${s.pkPerPerson ?? 3}"></div><div class="field"><label for="s_pkDualPass">배틀 둘 다 통과</label><input id="s_pkDualPass" type="number" min="0" max="5" value="${s.pkDualPass ?? 1}"></div></div>
       <div class="field"><label for="s_schedule">일정 안내 문구</label><input id="s_schedule" value="${esc(s.schedule || '')}"></div>
-      <div class="row"><button class="btn" data-act="saveSettings">설정 저장</button><span class="small muted">요일을 바꾸면 회차 날짜가 바로 다시 계산됩니다</span></div></div>
+      <div class="row"><button class="btn" data-act="saveSettings">설정 저장</button><span class="small muted">자동 진행 중에는 요일 변경 시 회차가 다시 계산됩니다. 회차 고정 중에는 ‘자동으로’로 해제할 때까지 유지됩니다.</span></div></div>
     <p class="small muted">시간은 보는 사람 기기 기준(한국)입니다. 카드·시안·코멘트 작성자는 계란님 계정에만 🔒 표시로 보이고(운영자 포함 다른 누구도 못 봄, Firestore 규칙으로 차단), 월드컵 대진 화면에서는 계란님에게도 보이지 않습니다. 진행 중인 월드컵 표는 본인만 볼 수 있으며 완료 시에만 합산에 들어갑니다.</p>
   </div>`;
   profilesInto();
@@ -1208,7 +1212,7 @@ async function renderAdmin() {
 }
 async function setOverride(v) {
   if (S.busy) return; S.busy = true;
-  try { await S.db.doc('settings/main').update(v ? { override: v, overrideRound: curWeek() } : { override: null, overrideRound: null }); toast(v ? `이번 회차를 '${PHASE[v]}'로 강제했습니다` : '자동 단계로 돌아갑니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
+  try { await S.db.doc('settings/main').update(v ? { override: v, overrideRound: curWeek() } : { override: null, overrideRound: null }); toast(v ? `${weekLabel(curWeek())} 회차를 '${PHASE[v]}'로 고정했습니다. 자동 해제되지 않습니다` : '회차 고정을 해제하고 정규 일정으로 돌아갑니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
   S.busy = false;
 }
 async function saveSettings() {
