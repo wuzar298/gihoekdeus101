@@ -1134,7 +1134,7 @@ function selfHealEntryAuthor() {
 
 /* results */
 function standings(w) {
-  if (!isOps()) { const r=S.publicResults['w_'+w] || {n:0,scores:{}}; return {n:r.n, rows:S.cards.filter(c=>c.weekId===w&&!c.urgent).map(card=>Object.assign({card,total:0,exp:0,norm:0},r.scores[card.id]||{})).sort((a,b)=>b.norm-a.norm||b.total-a.total||(a.card.createdAt||0)-(b.card.createdAt||0))}; }
+  if (!isOps()) { const r=S.publicResults['w_'+w]; return {n:r ? r.n : 0, rows:r && r.v===2 && Array.isArray(r.cardIds) ? r.cardIds.map(id=>S.cards.find(c=>c.id===id&&c.weekId===w&&!c.urgent)).filter(Boolean).map(card=>({card})) : []}; }
   const done = S.runs.map(r => r.weeks && r.weeks[w]).filter(Boolean).map(v => verifiedVote(v, poolFor(w).map(c => c.id))).filter(Boolean); const n = done.length;
   const cards = S.cards.filter(c => c.weekId === w && !c.urgent);
   const rows = cards.map(c => { let total = 0, exp = 0; done.forEach(r => { if (r.seen && r.seen.includes(c.id)) { exp++; total += (r.points && r.points[c.id]) || 0; } }); return { card: c, total, exp, norm: exp ? total / exp * n : 0 }; });
@@ -1148,20 +1148,31 @@ function renderResults() {
   const doneN = doneCount('week',w);
   let html = `<div class="stack"><div class="between"><h2>결과</h2>${weeks.length > 1 ? `<select id="rw" data-act="pickWeek">${weeks.map(x => `<option value="${x}" ${x === S.resultsWeek ? 'selected' : ''}>${esc(weekLabel(x))}</option>`).join('')}</select>` : ''}</div>`;
   if (ph === 'worldcup') html += `<div class="note">${esc(weekLabel(w))} 월드컵 진행 중 · 완료 ${doneN}명. ${forcedRound() ? '현재 회차는 운영자가 마감할 때까지 유지됩니다.' : `정규 마감은 ${S.settings.endHour ?? 18}:00입니다.`} 결과는 운영자가 집계·공개한 뒤 확인할 수 있습니다.</div>`;
-  if (!isOps() && weeks.some(x => !S.publicResults['w_'+x])) html += '<div class="note">공개 집계가 아직 없습니다. 계란님 또는 우재가 관리 탭에서 결과를 집계·공개해주세요.</div>';
+
   if (weeks.length === 0) html += `<div class="empty"><b>아직 결과가 없습니다</b>첫 월드컵이 끝나면 여기에 순위가 나옵니다.</div></div>`;
   if (!S.resultsWeek) { el.innerHTML = html + '</div>'; return; }
-  const rw = S.resultsWeek; const { rows, n } = standings(rw);
+  const rw = S.resultsWeek;
+  if (!isOps()) {
+    const published = S.publicResults['w_'+rw];
+    if (!published || published.v !== 2 || !Array.isArray(published.cardIds)) {
+      el.innerHTML = html + '<div class="empty"><b>아직 발표 전입니다</b>운영자가 상위 소재를 집계·공개하면 여기에 표시됩니다.</div></div>'; return;
+    }
+    const { rows } = standings(rw);
+    html += `<h3>${esc(weekLabel(rw))} 발표 소재</h3><p class="small muted">상위 40% 소재 ${rows.length}개 · 소수점 올림 · 순위와 관계없는 무작위 순서입니다. 점수와 순위는 공개하지 않습니다.</p>`;
+    html += rows.length ? `<div class="feed">${rows.map(r=>tileHTML(r.card)).join('')}</div>` : '<div class="empty"><b>발표할 소재가 없습니다</b>유효한 완료 투표가 있어야 결과를 발표합니다.</div>';
+    el.innerHTML = html + '</div>'; return;
+  }
+  const { rows, n } = standings(rw);
   const urgent = S.cards.filter(c => c.weekId === rw && c.urgent);
   html += `<div class="between"><h3>${esc(weekLabel(rw))} 순위 <span class="muted small" style="font-weight:400">${n}명 합산</span></h3>${S.isOwner ? '<span class="pill acc">선정은 계란님만</span>' : ''}</div>`;
   if (!rows.length) html += `<div class="empty"><b>카드가 없습니다</b></div>`;
   html += `<div class="card" style="padding:4px 12px">${rows.map((r, i) => {
     const c = r.card; const sel = c.status === 'selected';
-    return `<div class="rank ${i < 8 ? 'top' : ''}"><div class="n num">${i + 1}</div><button class="tile th" data-act="open" data-id="${esc(c.id)}">${thumbSVG(c.t1, c.t2)}</button><div class="body"><div class="ttl">${esc(c.title)}</div><div class="sc num"><b>${r.norm.toFixed(1)}</b>점 · 원점수 ${r.total} · ${r.exp}/${n}명이 봄${commentCount(c.id) ? ` · 코멘트 ${commentCount(c.id)}` : ''}</div>
+    return `<div class="rank ${i < Math.ceil(rows.length * .4) ? 'top' : ''}"><div class="n num">${i + 1}</div><button class="tile th" data-act="open" data-id="${esc(c.id)}">${thumbSVG(c.t1, c.t2)}</button><div class="body"><div class="ttl">${esc(c.title)}</div><div class="sc num"><b>${r.norm.toFixed(1)}</b>점 · 원점수 ${r.total} · ${r.exp}/${n}명이 봄${commentCount(c.id) ? ` · 코멘트 ${commentCount(c.id)}` : ''}</div>
       <div class="row" style="margin-top:6px">${sel ? `<span class="pill on">선정</span><span class="small">작성자 <b data-name="${esc(c.authorUid || '')}">${c.authorUid ? '…' : '(작성자가 앱을 열면 표시)'}</b></span>` : ownerTag('cards', c.id)}${S.isOwner ? (sel ? `<button class="btn sm ghost" data-act="unselect" data-id="${esc(c.id)}">선정 취소</button>` : `<button class="btn sm primary" data-act="select" data-id="${esc(c.id)}">선정</button>`) : ''}</div></div></div>`;
   }).join('')}</div>`;
   if (urgent.length) html += `<h3>긴급 카드 <span class="muted small" style="font-weight:400">월드컵 미경유</span></h3><div class="feed">${urgent.map(tileHTML).join('')}</div>`;
-  html += `<p class="small muted">환산 점수 = 카드별 평균 점수 × 참여 인원. 본 사람 수가 다른 카드끼리 공평하게 비교하기 위한 값입니다. 상위 8장이 강조됩니다.</p></div>`;
+  html += `<p class="small muted">환산 점수 = 카드별 평균 점수 × 참여 인원. 본 사람 수가 다른 카드끼리 공평하게 비교하기 위한 값입니다. 상위 40%(소수점 올림)가 강조됩니다. 전체 순위·원점수는 계란님과 운영자만 확인할 수 있습니다.</p></div>`;
   el.innerHTML = html;
   profilesInto(rows.map(r => r.card.authorUid).concat(S.isOwner && S.authorsIndex ? rows.map(r => S.authorsIndex.cards[r.card.id]) : []));
 }
@@ -1187,7 +1198,7 @@ async function renderAdmin() {
   const upcoming = [w, nextRound(w), nextRound(nextRound(w))].map(weekLabel).join(' · ');
   el.innerHTML = `<div class="stack">
     <h2>관리</h2>
-    <div class="card stack"><h3>전체 집계 · 계란님/운영자</h3><p class="small muted">현재 회차 유효 투표 ${standings(w).n}명. 개인별 원점수를 그대로 믿지 않고 대진·선택 기록으로 다시 계산합니다. 마감 후 아래 버튼으로 멤버용 결과를 공개합니다.</p><details><summary>현재 회차 집계 확인</summary>${standings(w).rows.map((r,i)=>`<p class="small">${i+1}. ${esc(r.card.title)} · ${r.norm.toFixed(1)}점</p>`).join('')}</details><button class="btn primary" data-act="publishResults">마감된 결과 전체 집계·공개</button><p class="small muted">투표 원본을 읽는 운영자는 작성자를 추정할 여지가 있으므로 신뢰된 계정만 지정하세요.</p></div>
+    <div class="card stack"><h3>전체 집계 · 계란님/운영자</h3><p class="small muted">현재 회차 유효 투표 ${standings(w).n}명. 개인별 원점수를 그대로 믿지 않고 대진·선택 기록으로 다시 계산합니다. 마감 후 아래 버튼으로 멤버에게 상위 40% 소재만 무작위로 공개합니다. 점수와 순위는 계란님·운영자만 확인합니다.</p><details><summary>현재 회차 집계 확인</summary>${standings(w).rows.map((r,i)=>`<p class="small">${i+1}. ${esc(r.card.title)} · ${r.norm.toFixed(1)}점</p>`).join('')}</details><button class="btn primary" data-act="publishResults">마감된 결과 전체 집계·공개</button><p class="small muted">투표 원본을 읽는 운영자는 작성자를 추정할 여지가 있으므로 신뢰된 계정만 지정하세요.</p></div>
     <div class="card stack"><div class="between"><h3>지금 단계 · ${esc(weekLabel(w))}</h3><span class="pill on">${PHASE[ph]}${forced ? ' (강제)' : ''}</span></div>
       <p class="small muted">단계는 시간으로 자동 바뀝니다. 월드컵 요일 00:00부터 ${s.endHour ?? 18}:00까지 월드컵, 그 뒤 자정까지 결과 공개, 나머지는 카드 모집입니다. 다음 월드컵: ${esc(upcoming)}</p>
       <details class="more"><summary>회차·단계 고정 (수동 마감·연장)</summary><div class="row" style="margin-top:8px">${['upload', 'worldcup', 'results'].map(x => `<button class="btn sm ${forced && s.override === x ? 'primary' : ''}" data-act="override" data-v="${x}">${PHASE[x]}</button>`).join('')}<button class="btn sm ghost" data-act="override" data-v="">자동으로</button></div><p class="small muted" style="margin-top:6px">고정 중에는 날짜나 마감 시각이 지나도 같은 회차와 단계가 유지됩니다. ‘결과 공개’로 투표를 마감한 뒤 위의 ‘마감된 결과 전체 집계·공개’를 눌러 결과를 게시하세요. ‘자동으로’를 누르면 회차 고정을 해제하고 현재 날짜의 정규 일정으로 돌아갑니다.</p></details></div>
@@ -1375,6 +1386,11 @@ async function publishPkRun(id, run) {
   } catch(e){toast('집계 등록 실패: 재시도 버튼을 눌러주세요. '+(e.code||e.message),6000);}
   render();
 }
+function publicWeekResult(cards, data) {
+  const ranked = cards.map(card=>Object.assign({card,total:0,exp:0,norm:0},data.scores[card.id]||{})).sort((a,b)=>b.norm-a.norm||b.total-a.total||(a.card.createdAt||0)-(b.card.createdAt||0));
+  const count = data.n > 0 ? Math.ceil(ranked.length * .4) : 0;
+  return {v:2,n:data.n,topPercent:40,totalCards:cards.length,cardIds:shuffle(ranked.slice(0,count).map(r=>r.card.id))};
+}
 async function publishResults() {
   if(!isOps()||S.busy)return; S.busy=true;
   try {
@@ -1384,7 +1400,7 @@ async function publishResults() {
     const w=curWeek(), weeks=[...new Set(S.cards.map(c=>c.weekId))].filter(x=>x<w||(x===w&&phase()==='results'));
     let n=0,invalid=0,legacy=0;
     const summarize=(votes,eligible)=>{ const checked=votes.map(v=>verifiedVote(v,eligible)); invalid+=checked.filter(v=>!v).length; legacy+=checked.filter(v=>v&&v.legacy).length; const ok=checked.filter(Boolean), scores={}; eligible.forEach(id=>{let total=0,exp=0;ok.forEach(v=>{if(v.seen.includes(id)){exp++;total+=v.points[id]||0;}});scores[id]={total,exp,norm:exp?total/exp*ok.length:0};});return {n:ok.length,scores}; };
-    for(const id of weeks){const data=summarize(S.runs.map(r=>r.weeks&&r.weeks[id]).filter(Boolean),poolFor(id).map(c=>c.id));await S.db.doc('results/w_'+id).set(Object.assign({kind:'week',refId:id,updatedAt:Date.now()},data));n++;}
+    for(const id of weeks){const cards=poolFor(id), data=summarize(S.runs.map(r=>r.weeks&&r.weeks[id]).filter(Boolean),cards.map(c=>c.id));const publication=publicWeekResult(cards,data);await S.db.doc('results/w_'+id).set(Object.assign({kind:'week',refId:id,updatedAt:Date.now()},publication));n++;}
     for(const b of S.battles.filter(b=>b.state==='closed')) {
       const q=await S.db.collection('entries').where('battleId','==',b.id).get();
       const data=summarize(S.pkPublic.map(r=>r.battles&&r.battles[b.id]).filter(Boolean),q.docs.map(d=>d.id));
