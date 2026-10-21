@@ -56,7 +56,7 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/$(kind)/$(id));
     }
     match /authors/{uid} {
-      allow read: if isOwner() || isSelf(uid);
+      allow read: if isOps() || isSelf(uid);
       allow create, update: if isSelf(uid) && authorChange();
     }
     match /cards/{id} {
