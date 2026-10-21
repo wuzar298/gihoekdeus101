@@ -299,9 +299,9 @@ function profilesInto() {
 }
 function hasDigit(s) { return /\d/.test(s || ''); }
 function ownerTag(kind, id) {
-  if (!S.isOwner || !S.authorsIndex) return '';
+  if (!isOps() || !S.authorsIndex) return '';
   const uid = (S.authorsIndex[kind] || {})[id]; if (!uid) return '';
-  return `<span class="pill eye" title="계란님에게만 보입니다"><b data-name="${esc(uid)}">…</b></span>`;
+  return `<span class="pill eye" title="계란님·운영자에게만 보입니다"><b data-name="${esc(uid)}">…</b></span>`;
 }
 function shuffle(a) { const r = a.slice(); for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; }
 function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
@@ -410,7 +410,7 @@ function subscribeAll() {
   db.collection('participation').onSnapshot(q => { S.participation = q.docs.map(d => d.data()); render(); }, e => {});
   db.doc('authors/' + uid).onSnapshot(s => { S.mine = s.exists ? s.data() : {}; if (!S.mine.cards) S.mine.cards = {}; render(); }, e => {});
   db.doc('users/' + uid + '/private/run').onSnapshot(s => { S.run = s.exists ? s.data() : null; render(); }, e => {});
-  if (S.isOwner) db.collection('authors').onSnapshot(q => { const ix = { cards: {}, entries: {}, comments: {} }; q.docs.forEach(d => { const a = d.data(); Object.keys(a.cards || {}).forEach(k => ix.cards[k] = d.id); Object.keys(a.entries || {}).forEach(k => ix.entries[k] = d.id); Object.keys(a.comments || {}).forEach(k => ix.comments[k] = d.id); }); S.authorsIndex = ix; render(); }, e => {});
+  if (isOps()) db.collection('authors').onSnapshot(q => { const ix = { cards: {}, entries: {}, comments: {} }; q.docs.forEach(d => { const a = d.data(); Object.keys(a.cards || {}).forEach(k => ix.cards[k] = d.id); Object.keys(a.entries || {}).forEach(k => ix.entries[k] = d.id); Object.keys(a.comments || {}).forEach(k => ix.comments[k] = d.id); }); S.authorsIndex = ix; render(); }, e => {});
   db.collection('battles').onSnapshot(q => { S.battles = q.docs.map(d => Object.assign({ id: d.id }, d.data())).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); render(); }, e => {});
   if (isOps()) db.collection('pkruns').onSnapshot(q => { S.pkPublic = q.docs.map(d => Object.assign({ id: d.id }, d.data())); render(); }, e => {});
   else db.doc('pkruns/' + uid).onSnapshot(d => { S.pkPublic = d.exists ? [Object.assign({id:d.id}, d.data())] : []; render(); }, e => {});
@@ -749,7 +749,7 @@ function renderDetail() {
     <h3>코멘트 ${S.comments.length ? `<span class="muted num" style="font-weight:400">${S.comments.length}</span>` : ''}</h3>
     ${S.canWrite === false ? '' : composerHTML(c.id, 'detail')}
     <div class="stack">${cms}</div>`;
-  profilesInto([c.authorUid].concat(S.isOwner && S.authorsIndex ? [S.authorsIndex.cards[c.id]].concat(S.comments.map(x => S.authorsIndex.comments[x.id])) : []));
+  profilesInto([c.authorUid].concat(isOps() && S.authorsIndex ? [S.authorsIndex.cards[c.id]].concat(S.comments.map(x => S.authorsIndex.comments[x.id])) : []));
 }
 async function sendComment(btn) {
   if (S.busy) return;
@@ -1024,7 +1024,7 @@ function renderBattle(el) {
       <p class="small muted">상위 3개를 유튜브 '테스트 및 비교' 후보로 쓰고, 나머지는 교체 벤치로 두세요.</p>`;
   }
   el.innerHTML = `<div class="stack">${head}${manage}${body}</div>`;
-  profilesInto(S.pkEntries.map(e => e.authorUid).concat(S.isOwner && S.authorsIndex ? S.pkEntries.map(e => S.authorsIndex.entries[e.id]) : []));
+  profilesInto(S.pkEntries.map(e => e.authorUid).concat(isOps() && S.authorsIndex ? S.pkEntries.map(e => S.authorsIndex.entries[e.id]) : []));
   const f = $('#pkFile'); if (f) f.addEventListener('change', onPkFile);
   const comp = $('#pkComposer'); if (comp) comp.addEventListener('input', () => { const t1 = $('#pk_t1').value, t2 = $('#pk_t2').value; lsSet('pkdraft:' + b.id, { t1, t2, title: $('#pk_title').value, note: $('#pk_note').value }); const c = $('#pk_cnt'); if (c) { c.textContent = `${t1.length}/${t2.length}`; c.style.color = (t1.length > 10 || t2.length > 10) ? 'var(--warn)' : ''; } if (!S.pkImg) $('#pkPreview').innerHTML = thumbSVG(t1 || '썸네일 1줄', t2 || '썸네일 2줄'); });
 }
@@ -1174,7 +1174,7 @@ function renderResults() {
   if (urgent.length) html += `<h3>긴급 카드 <span class="muted small" style="font-weight:400">월드컵 미경유</span></h3><div class="feed">${urgent.map(tileHTML).join('')}</div>`;
   html += `<p class="small muted">환산 점수 = 카드별 평균 점수 × 참여 인원. 본 사람 수가 다른 카드끼리 공평하게 비교하기 위한 값입니다. 상위 40%(소수점 올림)가 강조됩니다. 전체 순위·원점수는 계란님과 운영자만 확인할 수 있습니다.</p></div>`;
   el.innerHTML = html;
-  profilesInto(rows.map(r => r.card.authorUid).concat(S.isOwner && S.authorsIndex ? rows.map(r => S.authorsIndex.cards[r.card.id]) : []));
+  profilesInto(rows.map(r => r.card.authorUid).concat(isOps() && S.authorsIndex ? rows.map(r => S.authorsIndex.cards[r.card.id]) : []));
 }
 async function selectCard(id, on) {
   if (S.busy) return; S.busy = true;
@@ -1208,8 +1208,8 @@ async function renderAdmin() {
     <div class="card stack"><h3>멤버 관리 <span class="muted small" style="font-weight:400">구글 계정 이메일로 초대</span></h3>
       <table class="plain">${S.members.map(m => { const own = m.email === ownerOf(s); const can = !own && (S.isOwner || (isOps() && m.role !== 'ops')); return `<tr><td>${esc(m.name || '')}<div class="small muted">${esc(m.email)}</div></td><td>${own ? '<span class="pill on">계란님</span>' : `<span class="pill ${m.role === 'ops' ? 'acc' : ''}">${m.role === 'ops' ? '운영자' : '멤버'}</span> ${can ? `<button class="btn sm ghost" data-act="memberRole" data-id="${esc(m.email)}" data-v="${m.role === 'ops' ? 'member' : 'ops'}">${m.role === 'ops' ? '멤버로' : '운영자로'}</button><button class="btn sm ghost" data-act="memberRemove" data-id="${esc(m.email)}">✕</button>` : ''}`}</td></tr>`; }).join('')}</table>
       <div class="row"><input id="m_email" placeholder="구글 계정 이메일" style="flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><select id="m_role" style="background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px"><option value="member">멤버</option><option value="ops">운영자</option></select><button class="btn sm primary" data-act="memberAdd">추가</button></div>
-      <p class="small muted">추가한 이메일로 구글 로그인하면 바로 들어옵니다. 운영자는 설정·단계 강제·배틀 관리를 할 수 있고, 작성자 이름은 계란님에게만 보입니다.</p>
-      ${S.isOwner ? `<details class="more"><summary>계란님 계정 바꾸기</summary><div class="row" style="margin-top:8px"><input id="o_email" value="${esc(ownerOf(s))}" style="flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><button class="btn sm" data-act="ownerSave">바꾸기</button></div><p class="small muted" style="margin-top:6px">바꾸면 그 계정만 작성자를 볼 수 있고, 지금 계정은 멤버가 됩니다. 새 계정은 멤버에 먼저 추가해 두세요.</p></details>` : ''}</div>
+      <p class="small muted">추가한 이메일로 구글 로그인하면 바로 들어옵니다. 운영자는 설정·단계 강제·배틀 관리를 할 수 있고, 작성자 이름은 계란님과 운영자에게만 보입니다.</p>
+      ${S.isOwner ? `<details class="more"><summary>계란님 계정 바꾸기</summary><div class="row" style="margin-top:8px"><input id="o_email" value="${esc(ownerOf(s))}" style="flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><button class="btn sm" data-act="ownerSave">바꾸기</button></div><p class="small muted" style="margin-top:6px">바꾸면 새 계란님 계정과 운영자만 작성자를 볼 수 있고, 지금 계정은 멤버가 됩니다. 새 계정은 멤버에 먼저 추가해 두세요.</p></details>` : ''}</div>
     <div class="card stack"><h3>설정</h3>
       <div class="field"><label>월드컵 요일</label><div class="row" id="wcDaysBox">${[0, 1, 2, 3, 4, 5, 6].map(d => `<label class="check" style="gap:4px"><input type="checkbox" data-wcday="${d}" ${wcDays().includes(d) ? 'checked' : ''}> ${DAYS[d]}</label>`).join('')}</div></div>
       <div class="two"><div class="field"><label for="s_endHour">월드컵 마감 시각 (시)</label><input id="s_endHour" type="number" min="1" max="23" value="${s.endHour ?? 18}"></div><div class="field"><label for="s_target">회차 목표 카드 수</label><input id="s_target" type="number" min="4" max="64" value="${s.target ?? 16}"></div></div>
@@ -1218,13 +1218,13 @@ async function renderAdmin() {
       <div class="two"><div class="field"><label for="s_pkPerPerson">썸네일 배틀 1인 시안 수</label><input id="s_pkPerPerson" type="number" min="1" max="10" value="${s.pkPerPerson ?? 3}"></div><div class="field"><label for="s_pkDualPass">배틀 둘 다 통과</label><input id="s_pkDualPass" type="number" min="0" max="5" value="${s.pkDualPass ?? 1}"></div></div>
       <div class="field"><label for="s_schedule">일정 안내 문구</label><input id="s_schedule" value="${esc(s.schedule || '')}"></div>
       <div class="row"><button class="btn" data-act="saveSettings">설정 저장</button><span class="small muted">자동 진행 중에는 요일 변경 시 회차가 다시 계산됩니다. 회차 고정 중에는 ‘자동으로’로 해제할 때까지 유지됩니다.</span></div></div>
-    <p class="small muted">시간은 보는 사람 기기 기준(한국)입니다. 카드·시안·코멘트 작성자는 계란님 계정에만 🔒 표시로 보이고(운영자 포함 다른 누구도 못 봄, Firestore 규칙으로 차단), 월드컵 대진 화면에서는 계란님에게도 보이지 않습니다. 진행 중인 월드컵 표는 본인만 볼 수 있으며 완료 시에만 합산에 들어갑니다.</p>
+    <p class="small muted">시간은 보는 사람 기기 기준(한국)입니다. 카드·시안·코멘트 작성자는 계란님과 운영자에게만 표시됩니다(일반 멤버의 타인 작성자 정보 접근은 Firestore 규칙으로 차단). 월드컵 대진 화면에서는 계란님과 운영자에게도 보이지 않습니다. 진행 중인 월드컵 표는 본인만 볼 수 있으며 완료 시에만 합산에 들어갑니다.</p>
   </div>`;
   profilesInto();
-  if (S.isOwner) {
+  if (isOps()) {
     try {
       const q = await S.db.collection('authors').get(); const rows = q.docs.map(d => { const data = d.data(); const n = Object.values(data.cards || {}).filter(x => x === w).length; return { id: d.id, n }; });
-      const box = $('#adminAuthors'); if (box) { box.innerHTML = `<h3 style="margin-top:6px">${esc(weekLabel(w))} 카드 올린 사람 <span class="muted small" style="font-weight:400">계란님만 보임</span></h3>` + (rows.length ? `<table class="plain">${rows.map(r => `<tr><td data-name="${esc(r.id)}">…</td><td class="num">${r.n}장</td></tr>`).join('')}</table>` : '<p class="small muted">아직 없습니다.</p>'); profilesInto(rows.map(r => r.id)); }
+      const box = $('#adminAuthors'); if (box) { box.innerHTML = `<h3 style="margin-top:6px">${esc(weekLabel(w))} 카드 올린 사람 <span class="muted small" style="font-weight:400">계란님·운영자만 보임</span></h3>` + (rows.length ? `<table class="plain">${rows.map(r => `<tr><td data-name="${esc(r.id)}">…</td><td class="num">${r.n}장</td></tr>`).join('')}</table>` : '<p class="small muted">아직 없습니다.</p>'); profilesInto(rows.map(r => r.id)); }
     } catch (e) {}
   }
 }
