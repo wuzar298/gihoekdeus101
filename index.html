@@ -115,6 +115,13 @@ p{margin:0}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 
 .match{display:flex;flex-direction:column;gap:10px}
+.desktop-word{display:none}
+@media (min-width:700px){
+  .match{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);align-items:stretch}
+  .match .vs{align-self:center}
+  .mobile-word{display:none}
+  .desktop-word{display:inline}
+}
 .vs{text-align:center;font-family:var(--font-display);font-size:18px;color:var(--muted);letter-spacing:1px}
 .mcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;min-width:0}
 .mcard .ttl{margin-top:8px;font-weight:500;font-size:15px;line-height:1.4}
@@ -907,8 +914,8 @@ function renderWorldcup() {
     ${showDetail ? '' : '<p class="small muted">첫 라운드는 포장만 봅니다. 폰 홈 피드에서 누를 것 같은 쪽을 고르세요.</p>'}
     ${run.byeId && run.idx === 0 ? `<p class="small muted">연습생 ${esc((cardById(run.byeId) || {}).no || '')}는 부전승으로 올라갔습니다.</p>` : ''}
     <div class="match">${matchCardHTML(a, 'a', showDetail)}<div class="vs">VS</div>${matchCardHTML(b, 'b', showDetail)}</div>
-    <div class="decide"><button class="btn" data-act="decide" data-v="top" ${S.busy ? 'disabled' : ''}>위 통과</button><button class="btn ${run.dualLeft > 0 ? 'primary' : ''}" data-act="decide" data-v="both" ${run.dualLeft > 0 && !S.busy ? '' : 'disabled'}>둘 다 통과${run.dualLeft > 0 ? ` · ${run.dualLeft}회` : final ? '' : ' · 없음'}</button><button class="btn" data-act="decide" data-v="bottom" ${S.busy ? 'disabled' : ''}>아래 통과</button></div>
-    <p class="small muted" style="text-align:center">위 통과 = 위 카드가 올라감 · ${showDetail ? '카드 전체를 펼쳐 끝까지 볼 기획인지 보세요' : '지금은 썸네일과 제목만 봅니다'}</p>
+    <div class="decide"><button class="btn" data-act="decide" data-v="top" ${S.busy ? 'disabled' : ''}><span class="mobile-word">위</span><span class="desktop-word">왼쪽</span> 통과</button><button class="btn ${run.dualLeft > 0 ? 'primary' : ''}" data-act="decide" data-v="both" ${run.dualLeft > 0 && !S.busy ? '' : 'disabled'}>둘 다 통과${run.dualLeft > 0 ? ` · ${run.dualLeft}회` : final ? '' : ' · 없음'}</button><button class="btn" data-act="decide" data-v="bottom" ${S.busy ? 'disabled' : ''}><span class="mobile-word">아래</span><span class="desktop-word">오른쪽</span> 통과</button></div>
+    <p class="small muted" style="text-align:center"><span class="mobile-word">위 통과 = 위 카드가 올라감</span><span class="desktop-word">왼쪽 통과 = 왼쪽 카드가 올라감</span> · ${showDetail ? '카드 전체를 펼쳐 끝까지 볼 기획인지 보세요' : '지금은 썸네일과 제목만 봅니다'}</p>
   </div>`;
 }
 
@@ -1035,7 +1042,7 @@ function renderPkVote(b, run, doneN) {
   return `<div class="roundhead"><div class="big">${final ? '결승' : run.round + '라운드'} <em>${run.remaining.length}</em>장</div><span class="muted small num">매치 ${cur}/${total}</span></div>
     <div class="bar"><i style="width:${pct}%"></i></div>
     <div class="match">${mc(a)}<div class="vs">VS</div>${mc(c)}</div>
-    <div class="decide"><button class="btn" data-act="pkDecide" data-v="top" ${S.busy ? 'disabled' : ''}>위 통과</button><button class="btn ${run.dualLeft > 0 ? 'primary' : ''}" data-act="pkDecide" data-v="both" ${run.dualLeft > 0 && !S.busy ? '' : 'disabled'}>둘 다 통과${run.dualLeft > 0 ? ` · ${run.dualLeft}회` : ''}</button><button class="btn" data-act="pkDecide" data-v="bottom" ${S.busy ? 'disabled' : ''}>아래 통과</button></div>
+    <div class="decide"><button class="btn" data-act="pkDecide" data-v="top" ${S.busy ? 'disabled' : ''}><span class="mobile-word">위</span><span class="desktop-word">왼쪽</span> 통과</button><button class="btn ${run.dualLeft > 0 ? 'primary' : ''}" data-act="pkDecide" data-v="both" ${run.dualLeft > 0 && !S.busy ? '' : 'disabled'}>둘 다 통과${run.dualLeft > 0 ? ` · ${run.dualLeft}회` : ''}</button><button class="btn" data-act="pkDecide" data-v="bottom" ${S.busy ? 'disabled' : ''}><span class="mobile-word">아래</span><span class="desktop-word">오른쪽</span> 통과</button></div>
     <p class="small muted" style="text-align:center">폰 홈 피드에서 어느 쪽을 누를지로 고르세요</p>`;
 }
 function compressImage(file) {
