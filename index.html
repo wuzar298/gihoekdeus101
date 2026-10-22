@@ -496,7 +496,7 @@ function render() {
 function renderHeader() {
   const w = $('#weekBox');
   if (!S.settings) { w.innerHTML = `<span class="pill">${S.settingsLoaded ? '설정 전' : '불러오는 중'}</span>`; return; }
-  w.innerHTML = `<span>${esc(weekLabel(curWeek()))}</span><span class="pill ${phase() === 'worldcup' ? 'on' : phase() === 'results' ? 'acc' : ''}">${PHASE[phase()] || phase()}</span><button class="btn sm ghost" data-act="logout" title="${esc(S.email || '')}">나가기</button>`;
+  w.innerHTML = `<span>${esc(roundLabel(curWeek()))}</span><span class="pill ${phase() === 'worldcup' ? 'on' : phase() === 'results' ? 'acc' : ''}">${PHASE[phase()] || phase()}</span><button class="btn sm ghost" data-act="logout" title="${esc(S.email || '')}">나가기</button>`;
 }
 function renderNoSettings() {
   showScreen('board');
@@ -506,9 +506,24 @@ function renderNoSettings() {
 }
 
 /* board */
+/* Actual submitted/published rounds, not unused calendar slots, define round numbers. */
+function roundLabel(w) {
+  const weeks = [...new Set(S.cards.map(c => c.weekId).concat(Object.keys(S.publicResults).filter(k => k.startsWith('w_')).map(k => k.slice(2)), [curWeek(), w]))].filter(Boolean).sort();
+  const d = parseISO(w);
+  return `${weeks.indexOf(w) + 1}회차(${d.getMonth() + 1}/${d.getDate()})`;
+}
+function publishedTopCard(c) {
+  const r = S.publicResults['w_' + c.weekId];
+  return !c.urgent && !!r && r.v === 2 && Array.isArray(r.cardIds) && r.cardIds.includes(c.id);
+}
+function topCardBadge(c) {
+  return publishedTopCard(c) ? '<span class="pill good">상위 40%</span>' : '';
+}
+
 function tileHTML(c) {
   const cc = commentCount(c.id);
   const pills = [];
+  if (publishedTopCard(c)) pills.push(topCardBadge(c));
   if (c.status === 'selected') pills.push('<span class="pill on">선정</span>');
   if (c.urgent) pills.push('<span class="pill bad">긴급</span>');
   if (isMine(c.id)) pills.push('<span class="pill acc">내 카드</span>');
@@ -522,7 +537,7 @@ function renderBoard() {
   const cap = S.settings.target || 16;
   const mineN = countMine(w);
   let html = `<div class="stack">
-    <div class="between"><h2>${esc(weekLabel(w))} 월드컵 카드 <span class="muted num" style="font-weight:400">${pool.length}/${cap}</span></h2><span class="pill ${mineN >= myLimit() ? 'good' : ''}">내 카드 ${mineN}/${myLimit()}</span></div>
+    <div class="between"><h2>${esc(roundLabel(w))} 월드컵 카드 <span class="muted num" style="font-weight:400">${pool.length}/${cap}</span></h2><span class="pill ${mineN >= myLimit() ? 'good' : ''}">내 카드 ${mineN}/${myLimit()}</span></div>
     <p class="small muted">${forcedRound() ? `회차·단계 고정 중 · ${esc(weekLabel(w))} · ${PHASE[phase()]} · 운영자가 ‘자동으로’를 누를 때까지 유지됩니다.` : esc(S.settings.schedule || '')}</p>`;
   if (S.canWrite === false) html += `<div class="note">보기 전용 권한입니다. 카드를 올리거나 월드컵을 하려면 계란님에게 '편집자' 권한으로 다시 초대해 달라고 하세요.</div>`;
   if (urgent.length) html += `<h3 style="margin-top:4px">긴급 카드 <span class="muted small" style="font-weight:400">월드컵 없이 바로 회의 안건</span></h3><div class="feed">${urgent.map(tileHTML).join('')}</div>`;
@@ -531,7 +546,21 @@ function renderBoard() {
     : `<div class="empty"><b>아직 올라온 카드가 없습니다</b>'올리기' 탭에서 첫 카드를 올려보세요. 작성자는 보이지 않습니다.</div>`;
   if (next.length) html += `<h3 style="margin-top:8px">다음 회차 대기 <span class="muted small" style="font-weight:400">${next.length}장 · ${esc(weekLabel(next[0].weekId))}</span></h3><div class="feed">${next.map(tileHTML).join('')}</div>`;
   const past = S.cards.filter(c => c.weekId < w);
-  if (past.length) html += `<details class="more" style="margin-top:8px"><summary>지난 회차 카드 ${past.length}장</summary><div class="feed" style="margin-top:10px">${past.slice(0, 40).map(tileHTML).join('')}</div></details>`;
+  const archiveWeeks = [...new Set(past.map(c => c.weekId))].sort().reverse();
+  const oldArchive = [...document.querySelectorAll('[data-archive-week]')];
+  const opened = new Set(oldArchive.filter(el => el.open).map(el => el.dataset.archiveWeek));
+  if (past.length) {
+    html += `<h2 style="margin-top:16px">회차별 카드 아카이브 <span class="muted small" style="font-weight:400">${archiveWeeks.length}회 · 총 ${past.length}장</span></h2><p class="small muted">지난 회차의 모든 카드를 보관합니다. 상위 40% 배지는 공개된 월드컵 결과 기준이며, ‘선정’과는 별개입니다.</p>`;
+    html += archiveWeeks.map((week, i) => {
+      const cards = past.filter(c => c.weekId === week);
+      const result = S.publicResults['w_' + week];
+      const published = result && result.v === 2 && Array.isArray(result.cardIds);
+      const topN = cards.filter(publishedTopCard).length;
+      const note = published ? `상위 40% ${topN}장` : '결과 발표 전';
+      const open = oldArchive.length ? opened.has(week) : i === 0;
+      return `<details class="more" data-archive-week="${esc(week)}" ${open ? 'open' : ''}><summary>${esc(roundLabel(week))} · ${cards.length}장 · ${note}</summary><div class="feed" style="margin-top:10px">${cards.map(tileHTML).join('')}</div></details>`;
+    }).join('');
+  }
   html += `</div>`;
   $('#scr-board').innerHTML = html;
 }
@@ -726,6 +755,7 @@ function renderDetail() {
   if (!c) { box.innerHTML = `<div class="sheet-bar"><button class="btn sm" data-act="close">닫기</button></div><div class="empty">카드를 찾을 수 없습니다</div>`; return; }
   const mine = isMine(c.id), see = canSeeComments(c);
   const pills = [];
+  if (publishedTopCard(c)) pills.push(topCardBadge(c));
   if (c.status === 'selected') pills.push('<span class="pill on">선정</span>');
   if (c.urgent) pills.push('<span class="pill bad">긴급</span>');
   if (mine) pills.push('<span class="pill acc">내 카드</span>');
@@ -739,7 +769,7 @@ function renderDetail() {
   let cms;
   if (see) cms = S.comments.length ? S.comments.map(cm => commentHTML(cm, c)).join('') : `<p class="small muted">아직 코멘트가 없습니다.</p>`;
   else cms = `<div class="note">이번 회차 내 월드컵을 끝내면 다른 사람의 코멘트를 볼 수 있습니다. 내 코멘트는 바로 남길 수 있습니다.</div>${S.comments.filter(x => S.mine.comments && S.mine.comments[x.id]).map(cm => commentHTML(cm, c)).join('')}`;
-  box.innerHTML = `<div class="sheet-bar"><div class="row"><span class="muted small">연습생 ${esc(c.no || '')} · ${esc(weekLabel(c.weekId))}</span></div><button class="btn sm" data-act="close">닫기</button></div>
+  box.innerHTML = `<div class="sheet-bar"><div class="row"><span class="muted small">연습생 ${esc(c.no || '')} · ${esc(roundLabel(c.weekId))}</span></div><button class="btn sm" data-act="close">닫기</button></div>
     ${thumbSVG(c.t1, c.t2)}
     <div><h2>${esc(c.title)}</h2><p class="muted" style="margin-top:4px">${esc(c.name)}</p></div>
     <div class="row">${pills.join('')}</div>
@@ -1146,7 +1176,7 @@ function renderResults() {
   const weeks = [...new Set(S.cards.map(c => c.weekId))].filter(x => x < w || (x === w && ph === 'results')).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
   if (!S.resultsWeek || !weeks.includes(S.resultsWeek)) S.resultsWeek = weeks[0] || null;
   const doneN = doneCount('week',w);
-  let html = `<div class="stack"><div class="between"><h2>결과</h2>${weeks.length > 1 ? `<select id="rw" data-act="pickWeek">${weeks.map(x => `<option value="${x}" ${x === S.resultsWeek ? 'selected' : ''}>${esc(weekLabel(x))}</option>`).join('')}</select>` : ''}</div>`;
+  let html = `<div class="stack"><div class="between"><h2>결과</h2>${weeks.length > 1 ? `<select id="rw" data-act="pickWeek">${weeks.map(x => `<option value="${x}" ${x === S.resultsWeek ? 'selected' : ''}>${esc(roundLabel(x))}</option>`).join('')}</select>` : ''}</div>`;
   if (ph === 'worldcup') html += `<div class="note">${esc(weekLabel(w))} 월드컵 진행 중 · 완료 ${doneN}명. ${forcedRound() ? '현재 회차는 운영자가 마감할 때까지 유지됩니다.' : `정규 마감은 ${S.settings.endHour ?? 18}:00입니다.`} 결과는 운영자가 집계·공개한 뒤 확인할 수 있습니다.</div>`;
 
   if (weeks.length === 0) html += `<div class="empty"><b>아직 결과가 없습니다</b>첫 월드컵이 끝나면 여기에 순위가 나옵니다.</div></div>`;
@@ -1158,13 +1188,13 @@ function renderResults() {
       el.innerHTML = html + '<div class="empty"><b>아직 발표 전입니다</b>운영자가 상위 소재를 집계·공개하면 여기에 표시됩니다.</div></div>'; return;
     }
     const { rows } = standings(rw);
-    html += `<h3>${esc(weekLabel(rw))} 발표 소재</h3><p class="small muted">상위 40% 소재 ${rows.length}개 · 소수점 올림 · 순위와 관계없는 무작위 순서입니다. 점수와 순위는 공개하지 않습니다.</p>`;
+    html += `<h3>${esc(roundLabel(rw))} 발표 소재</h3><p class="small muted">상위 40% 소재 ${rows.length}개 · 소수점 올림 · 순위와 관계없는 무작위 순서입니다. 점수와 순위는 공개하지 않습니다.</p>`;
     html += rows.length ? `<div class="feed">${rows.map(r=>tileHTML(r.card)).join('')}</div>` : '<div class="empty"><b>발표할 소재가 없습니다</b>유효한 완료 투표가 있어야 결과를 발표합니다.</div>';
     el.innerHTML = html + '</div>'; return;
   }
   const { rows, n } = standings(rw);
   const urgent = S.cards.filter(c => c.weekId === rw && c.urgent);
-  html += `<div class="between"><h3>${esc(weekLabel(rw))} 순위 <span class="muted small" style="font-weight:400">${n}명 합산</span></h3>${S.isOwner ? '<span class="pill acc">선정은 계란님만</span>' : ''}</div>`;
+  html += `<div class="between"><h3>${esc(roundLabel(rw))} 순위 <span class="muted small" style="font-weight:400">${n}명 합산</span></h3>${S.isOwner ? '<span class="pill acc">선정은 계란님만</span>' : ''}</div>`;
   if (!rows.length) html += `<div class="empty"><b>카드가 없습니다</b></div>`;
   html += `<div class="card" style="padding:4px 12px">${rows.map((r, i) => {
     const c = r.card; const sel = c.status === 'selected';
@@ -1230,7 +1260,7 @@ async function renderAdmin() {
 }
 async function setOverride(v) {
   if (S.busy) return; S.busy = true;
-  try { await S.db.doc('settings/main').update(v ? { override: v, overrideRound: curWeek() } : { override: null, overrideRound: null }); toast(v ? `${weekLabel(curWeek())} 회차를 '${PHASE[v]}'로 고정했습니다. 자동 해제되지 않습니다` : '회차 고정을 해제하고 정규 일정으로 돌아갑니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
+  try { await S.db.doc('settings/main').update(v ? { override: v, overrideRound: curWeek() } : { override: null, overrideRound: null }); toast(v ? `${roundLabel(curWeek())} 회차를 '${PHASE[v]}'로 고정했습니다. 자동 해제되지 않습니다` : '회차 고정을 해제하고 정규 일정으로 돌아갑니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
   S.busy = false;
 }
 async function saveSettings() {
