@@ -199,6 +199,13 @@ table.plain td{padding:7px 4px;border-bottom:1px solid var(--line);vertical-alig
 table.plain td:last-child{text-align:right;white-space:nowrap}
 .empty{padding:28px 12px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
 .empty b{color:var(--fg);display:block;margin-bottom:4px;font-weight:500}
+
+/* Desktop worldcup: use the available width without changing mobile or other tabs. */
+@media (min-width:900px){
+  main:has(> #scr-worldcup:not([hidden])){max-width:1440px;padding-left:24px;padding-right:24px}
+  #scr-worldcup .match{grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:16px}
+  #scr-worldcup .mcard{padding:16px}
+}
 </style>
 </head>
 <body>
