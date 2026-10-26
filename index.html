@@ -1253,7 +1253,7 @@ async function renderAdmin() {
   profilesInto();
   if (isOps()) {
     try {
-      const q = await S.db.collection('authors').get(); const rows = q.docs.map(d => { const data = d.data(); const n = Object.values(data.cards || {}).filter(x => x === w).length; return { id: d.id, n }; });
+      const q = await S.db.collection('authors').get(); const rows = q.docs.map(d => { const data = d.data(); const n = S.cards.filter(c => c.weekId === w && (data.cards || {})[c.id] === w).length; return { id: d.id, n }; });
       const box = $('#adminAuthors'); if (box) { box.innerHTML = `<h3 style="margin-top:6px">${esc(weekLabel(w))} 카드 올린 사람 <span class="muted small" style="font-weight:400">계란님·운영자만 보임</span></h3>` + (rows.length ? `<table class="plain">${rows.map(r => `<tr><td data-name="${esc(r.id)}">…</td><td class="num">${r.n}장</td></tr>`).join('')}</table>` : '<p class="small muted">아직 없습니다.</p>'); profilesInto(rows.map(r => r.id)); }
     } catch (e) {}
   }
