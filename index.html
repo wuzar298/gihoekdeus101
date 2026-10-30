@@ -207,6 +207,7 @@ table.plain td:last-child{text-align:right;white-space:nowrap}
   #scr-worldcup .match{grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:16px}
   #scr-worldcup .mcard{padding:16px}
 }
+.tc-choice{min-height:110px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:18px;text-align:left;padding:20px}#scr-topics input,#scr-topics textarea{display:block;width:100%;margin-top:6px}#scr-topics li,#scr-topics h3{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -222,6 +223,7 @@ table.plain td:last-child{text-align:right;white-space:nowrap}
   <section id="scr-board" hidden></section>
   <section id="scr-compose" hidden></section>
   <section id="scr-worldcup" hidden></section>
+  <section id="scr-topics" hidden></section>
   <section id="scr-pk" hidden></section>
   <section id="scr-results" hidden></section>
   <section id="scr-admin" hidden></section>
@@ -231,6 +233,7 @@ table.plain td:last-child{text-align:right;white-space:nowrap}
   <button class="tab on" data-tab="board"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 20V10"/></svg>게시판</button>
   <button class="tab" data-tab="compose"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>올리기</button>
   <button class="tab" data-tab="worldcup"><svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M6 3h12v6a6 6 0 0 1-12 0z"/><path d="M6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3"/></svg>월드컵</button>
+  <button class="tab" data-tab="topics"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 9h8M8 14h8"/></svg>소재</button>
   <button class="tab" data-tab="pk"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>썸네일</button>
   <button class="tab" data-tab="results"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>결과</button>
   <button class="tab" data-tab="admin" id="tabAdmin" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>관리</button>
@@ -319,7 +322,7 @@ function fmtDate(ts) { if (!ts) return ''; const d = new Date(ts); return `${d.g
 
 /* ---------- boot ---------- */
 function showScreen(name) {
-  ['gate', 'board', 'compose', 'worldcup', 'pk', 'results', 'admin'].forEach(n => { const el = $('#scr-' + n); if (el) el.hidden = n !== name; });
+  ['gate', 'board', 'compose', 'worldcup', 'pk', 'topics', 'results', 'admin'].forEach(n => { const el = $('#scr-' + n); if (el) el.hidden = n !== name; });
 }
 function setTab(t) {
   S.tab = t; document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
@@ -496,7 +499,7 @@ function render() {
   renderHeader();
   if (!S.settings) { renderNoSettings(); return; }
   showScreen(S.tab);
-  ({ board: renderBoard, compose: renderCompose, worldcup: renderWorldcup, pk: renderPk, results: renderResults, admin: renderAdmin })[S.tab]();
+  ({ board: renderBoard, compose: renderCompose, worldcup: renderWorldcup, pk: renderPk, topics: renderTopics, results: renderResults, admin: renderAdmin })[S.tab]();
   if (S.openCard) renderDetail();
   if (S.pkOpen && S.pkEntries.length) selfHealEntryAuthor();
   });
@@ -1517,6 +1520,49 @@ async function publishResults() {
     toast(n ? `${n}개 결과 공개·갱신 완료. 제외 기록 ${invalid}개${legacy?`, 기존 방식 기록 ${legacy}개 유지`:''}` : '아직 마감된 회차·종료된 배틀이 없습니다',6000);
   }catch(e){toast('집계 공개 실패: '+(e.code||e.message),6000);}finally{S.busy=false;render();}
 }
+
+/* TOPIC_CORE_START: deterministic, browser-independent ballot verifier. */
+const TopicCore = (() => {
+  function rng(seed) { let h=2166136261; for(const ch of seed) h=Math.imul(h^ch.charCodeAt(0),16777619); return ()=>{h+=0x6D2B79F5;let t=h;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return ((t^(t>>>14))>>>0)/4294967296;}; }
+  function validContest(c) {return c&&c.v===1&&Array.isArray(c.ids)&&c.ids.length>=3&&c.ids.length<=200&&new Set(c.ids).size===c.ids.length&&c.ids.every(id=>typeof id==='string'&&/^t[0-9]{3}$/.test(id)&&typeof c.topics?.[id]==='string'&&c.topics[id].length>0&&c.topics[id].length<=500)&&Object.keys(c.topics).length===c.ids.length;}
+  function pairs(c,uid) {if(!validContest(c)||typeof uid!=='string'||!uid)throw Error('잘못된 후보 목록');const r=rng(JSON.stringify([1,c.id,c.seed,uid])),a=c.ids.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a.map((id,i)=>r()<.5?[id,a[(i+1)%a.length]]:[a[(i+1)%a.length],id]);}
+  function verify(c,uid,v,partial=false) {try{if(!v||v.v!==1||!Array.isArray(v.choices))return null;const p=pairs(c,uid);if(v.choices.length>p.length||(!partial&&v.choices.length!==p.length))return null;const scores=Object.fromEntries(c.ids.map(id=>[id,{wins:0,appearances:0}]));for(let i=0;i<v.choices.length;i++){const ch=v.choices[i];if(typeof ch!=='string'||!p[i].includes(ch))return null;p[i].forEach(id=>scores[id].appearances++);scores[ch].wins++;}return scores;}catch(e){return null;}}
+  function aggregate(c,ballots) {const scores=Object.fromEntries(c.ids.map(id=>[id,{wins:0,appearances:0}]));let n=0,rejected=0;for(const b of ballots){const s=verify(c,b.uid,b.data);if(!s){rejected++;continue;}n++;for(const id of c.ids){scores[id].wins+=s[id].wins;scores[id].appearances+=s[id].appearances;}}return {v:1,n,rejected,scores};}
+  function rank(c,result) {const rows=c.ids.map(id=>({id,...result.scores[id]})).sort((a,b)=>b.wins*a.appearances-a.wins*b.appearances||a.id.localeCompare(b.id));let rank=0;rows.forEach((r,i)=>{if(i===0||r.wins*rows[i-1].appearances!==rows[i-1].wins*r.appearances)rank=i+1;r.rank=rank;r.tied=rows.some(x=>x.id!==r.id&&x.wins*r.appearances===r.wins*x.appearances);});return rows;}
+  return {pairs,verify,aggregate,rank,validContest};
+})();
+/* TOPIC_CORE_END */
+const TC={items:null,error:'',loading:false,busy:false,open:null,ballot:null,done:false,loadError:false,dirty:false,form:{title:'',text:''},editId:null,saving:false,choiceLock:0};
+const tcRef=id=>S.db.doc('topicContests/'+id);
+const tcProgress=id=>S.db.doc('users/'+S.uid+'/topicProgress/'+id);
+const tcStamp=()=>firebase.firestore.FieldValue.serverTimestamp();
+function tcButton(action,label,id=''){return '<button class="btn" data-tc="'+action+'" data-id="'+esc(id)+'" '+(TC.busy?'disabled':'')+'>'+label+'</button>';}
+async function tcLoad(){if(TC.loading)return;TC.loading=true;TC.error='';renderTopics();try{const q=await S.db.collection('topicContests').get({source:'server'});TC.items=q.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));}catch(e){TC.error='목록을 읽지 못했습니다: '+(e.code||e.message);}finally{TC.loading=false;if(S.tab==='topics')renderTopics();}}
+async function tcOpen(id){if(TC.busy)return;TC.busy=true;TC.error='';TC.loadError=false;TC.open=id;TC.ballot=null;TC.done=false;renderTopics();try{const [c,v,p]=await Promise.all([tcRef(id).get({source:'server'}),tcRef(id).collection('votes').doc(S.uid).get({source:'server'}),tcProgress(id).get({source:'server'})]);if(!c.exists)throw Error('삭제된 회차입니다');const contest={...c.data(),id};TC.items=TC.items.map(x=>x.id===id?contest:x);if(!TopicCore.validContest(contest))throw Error('후보 형식 오류: 운영자에게 알려주세요');TC.done=v.exists;const saved=p.exists?p.data():{v:1,choices:[]};if(!TC.done&&!TopicCore.verify(contest,S.uid,saved,true))throw Error('저장된 진행 기록이 올바르지 않습니다. 운영자에게 알려주세요.');TC.ballot={v:1,choices:TC.done?[]:saved.choices.slice()};TC.dirty=false;}catch(e){TC.error=e.code||e.message;TC.loadError=true;}finally{TC.busy=false;renderTopics();}}
+function renderTopics(){const el=$('#scr-topics');if(!el)return;const head='<div class="stack"><h2>소재 월드컵</h2><p class="note">탈락 없이 모든 소재를 2번씩 비교합니다. 소재 50개면 50번 선택합니다. 승률 = 승리 ÷ 등장 횟수. 멤버에게 이름·다른 사람의 선택은 표시되지 않습니다. 운영자는 집계를 위해 계정별 원본 투표에 접근할 수 있으며 암호학적 익명이 아닙니다.</p>';
+let body='';if(TC.error)body+='<p role="alert" class="note">'+esc(TC.error)+'</p>'+tcButton(TC.dirty?'save':(TC.open?'reload':'refresh'),TC.dirty?'저장 재시도':'다시 읽기',TC.open||'');
+if(!TC.items){el.innerHTML=head+body+'<p role="status">불러오는 중...</p></div>';if(!TC.loading&&!TC.error)tcLoad();return;}
+if(!TC.open){body+=tcButton('refresh',TC.loading?'새로고침 중...':'새로고침');if(isOps())body+='<div class="card stack"><h3>새 회차 만들기</h3><label>회차 제목<input id="tcTitle" maxlength="120" value="'+esc(TC.form.title)+'"></label><label>소재 (한 줄 하나, 3~200개 · 각 500자)<textarea id="tcText" rows="8">'+esc(TC.form.text)+'</textarea></label>'+tcButton('create',TC.editId?'수정한 초안 저장':'새 초안 저장')+'</div>';body+=TC.items.map(c=>'<div class="card stack"><h3>'+esc(c.title)+'</h3><p>'+esc({draft:'초안',open:'투표 중',closed:'마감 · 결과 비공개',published:'결과 공개'}[c.state]||c.state)+' · '+c.ids.length+'개</p>'+tcButton('open','열기',c.id)+'</div>').join('')||'<p>아직 회차가 없습니다.</p>';
+}else{const c=TC.items.find(x=>x.id===TC.open);body+=tcButton('back','목록');if(c){body+='<h3>'+esc(c.title)+'</h3><p>'+esc({draft:'초안',open:'투표 중',closed:'마감 · 결과 비공개',published:'결과 공개'}[c.state])+'</p>';if(TC.busy)body+='<p role="status">처리 중...</p>';if(isOps()){if(c.state==='draft')body+=tcButton('edit','초안 수정',c.id)+tcButton('start','후보 확정하고 시작',c.id);if(c.state==='open')body+=tcButton('close','수동 마감',c.id);if(c.state==='closed')body+=tcButton('publish','검증·집계 후 결과 공개',c.id);}
+if(c.state==='draft')body+='<p class="note">시작 후 후보는 변경할 수 없습니다.</p><ol>'+c.ids.map(id=>'<li>'+esc(c.topics[id])+'</li>').join('')+'</ol>';
+if(c.state==='open'&&!TC.loadError&&TC.ballot){if(TC.done)body+='<p class="note">제출 완료. 수정할 수 없습니다. 운영자 공개 후 결과가 표시됩니다.</p>';else{const p=TopicCore.pairs(c,S.uid),i=TC.ballot.choices.length;body+='<p role="status">'+i+' / '+p.length+' 선택 · '+(TC.dirty?'미저장 변경 있음':'저장된 진행')+'</p><progress max="'+p.length+'" value="'+i+'" style="width:100%"></progress>';if(i<p.length)body+='<div class="stack">'+p[i].map(id=>'<button class="btn tc-choice" data-tc="choose" data-choice="'+esc(id)+'" data-index="'+i+'" '+(TC.busy||TC.saving?'disabled':'')+'>'+esc(c.topics[id])+'</button>').join('')+'</div>';body+='<div class="row">'+tcButton('save',TC.saving?'저장 중...':'진행 저장 / 재시도')+(i===p.length?tcButton('submit','최종 제출 / 재시도'):'')+'</div><p class="small muted">선택마다 자동 저장합니다. 저장 실패 시 이 화면을 유지하고 재시도하세요. 여러 기기에서 동시에 투표하지 마세요. 최종 제출 전까지 집계되지 않습니다.</p>';}}
+if(c.state==='closed')body+='<p class="note">마감되었습니다. 미완료 기록은 집계되지 않습니다. 공개를 기다려주세요.</p>';
+if(c.state==='published'&&c.result){const r=c.result;body+='<p>유효 완료 '+r.n+'명 · 제외 '+r.rejected+'건</p><p class="small muted">동률은 공동 순위입니다. 3위 동률은 모두 표시합니다. 정확히 3개를 정해야 한다면 동률 후보 추가 투표 또는 별도 결정이 필요합니다. 같은 순위 내 표시 순서는 소재 ID순이며 우열이 아닙니다.</p>';if(!r.n)body+='<p>유효 완료 투표가 없어 순위를 매기지 않습니다.</p>';else body+='<ol class="stack" style="list-style:none;padding:0">'+TopicCore.rank(c,r).map(x=>'<li class="card"><b>'+(x.tied?'공동 ':'')+x.rank+'위'+(x.rank<=3?' · 상위권':'')+'</b><p>'+esc(c.topics[x.id])+'</p><span>'+x.wins+'승 / '+x.appearances+'회 · '+(100*x.wins/x.appearances).toFixed(1)+'%</span></li>').join('')+'</ol>';}
+}}el.innerHTML=head+body+'</div>';}
+async function tcSave(){if(TC.saving||!TC.ballot||TC.done)return;TC.saving=true;const id=TC.open,copy={v:1,choices:TC.ballot.choices.slice(),updatedAt:tcStamp()};try{await tcProgress(id).set(copy);TC.dirty=false;TC.error='';}catch(e){TC.dirty=true;TC.error='진행 저장 실패. 화면을 유지하고 저장을 재시도하세요: '+(e.code||e.message);}finally{TC.saving=false;if(S.tab==='topics')renderTopics();}}
+async function tcAction(action,t){if(TC.busy||TC.saving)return;
+if(action==='edit'&&isOps()){const d=TC.items.find(x=>x.id===t.dataset.id);TC.editId=d.id;TC.form={title:d.title,text:d.ids.map(id=>d.topics[id]).join('\n')};TC.open=null;renderTopics();return;}if(action==='refresh'){tcLoad();return;}if(action==='open'||action==='reload'){tcOpen(t.dataset.id);return;}if(action==='back'){if(TC.dirty){TC.error='먼저 진행 저장을 재시도하세요.';renderTopics();return;}TC.open=null;TC.error='';renderTopics();return;}if(action==='save'){tcSave();return;}
+const c=TC.items?.find(x=>x.id===TC.open);
+if(action==='choose'){const i=TC.ballot?.choices.length;if(TC.done||!c||c.state!=='open'||Number(t.dataset.index)!==i||Date.now()<TC.choiceLock)return;const pair=TopicCore.pairs(c,S.uid)[i];if(!pair?.includes(t.dataset.choice))return;TC.choiceLock=Date.now()+450;TC.ballot.choices.push(t.dataset.choice);TC.dirty=true;tcSave();return;}
+TC.busy=true;TC.error='';renderTopics();try{
+if(action==='create'){if(!isOps())throw Error('운영자 전용');const title=TC.form.title.trim(),topics=TC.form.text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!title||title.length>120||topics.length<3||topics.length>200||topics.some(x=>x.length>500)||new Set(topics).size!==topics.length)throw Error('제목과 서로 다른 소재 3~200개를 입력하세요. 소재는 각각 500자 이내입니다.');const ref=TC.editId?tcRef(TC.editId):S.db.collection('topicContests').doc(),ids=topics.map((_,i)=>'t'+String(i).padStart(3,'0'));const payload={v:1,title,ids,topics:Object.fromEntries(ids.map((id,i)=>[id,topics[i]])),seed:ref.id,state:'draft',createdAt:tcStamp(),updatedAt:tcStamp()};if(TC.editId){await S.db.runTransaction(async tx=>{const d=await tx.get(ref);if(d.data().state!=='draft')throw Error('이미 시작되어 수정할 수 없습니다.');tx.update(ref,{title,ids,topics:payload.topics,updatedAt:tcStamp()});});}else await ref.set(payload);TC.editId=null;TC.form={title:'',text:''};await tcLoad();}
+if(action==='start'||action==='close'){if(!isOps())throw Error('운영자 전용');await S.db.runTransaction(async tx=>{const ref=tcRef(c.id),d=await tx.get(ref),fresh={...d.data(),id:c.id};if(fresh.state!==(action==='start'?'draft':'open')||!TopicCore.validContest(fresh))throw Error('상태가 변경되었습니다. 다시 읽어주세요.');tx.update(ref,{state:action==='start'?'open':'closed',updatedAt:tcStamp()});});await tcLoad();}
+if(action==='submit'){if(!TopicCore.verify(c,S.uid,TC.ballot))throw Error('모든 비교를 완료해야 합니다.');const ballot={v:1,choices:TC.ballot.choices.slice(),completedAt:tcStamp()};await S.db.runTransaction(async tx=>{const ref=tcRef(c.id),vote=ref.collection('votes').doc(S.uid),existing=await tx.get(vote),fresh=await tx.get(ref);if(existing.exists)return;if(fresh.data().state!=='open')throw Error('이미 마감되었습니다. 제출할 수 없습니다.');tx.set(vote,ballot);});TC.done=true;TC.dirty=false;}
+if(action==='publish'){if(!isOps())throw Error('운영자 전용');const fresh=await tcRef(c.id).get({source:'server'}),contest={...fresh.data(),id:c.id};if(contest.state!=='closed')throw Error('먼저 수동 마감하세요.');const q=await tcRef(c.id).collection('votes').get({source:'server'}),result=TopicCore.aggregate(contest,q.docs.map(d=>({uid:d.id,data:d.data()})));await S.db.runTransaction(async tx=>{const ref=tcRef(c.id),d=await tx.get(ref);if(d.data().state!=='closed')throw Error('상태가 변경되었습니다.');tx.update(ref,{state:'published',result,updatedAt:tcStamp()});});await tcLoad();}
+}catch(e){TC.error='실패: '+(e.code||e.message)+' · 다시 시도할 수 있습니다.';}finally{TC.busy=false;renderTopics();}}
+document.addEventListener('input',e=>{if(e.target.id==='tcTitle')TC.form.title=e.target.value;if(e.target.id==='tcText')TC.form.text=e.target.value;});
+document.addEventListener('click',e=>{const t=e.target.closest('[data-tc]');if(t)tcAction(t.dataset.tc,t);});
+window.addEventListener('beforeunload',e=>{if(TC.dirty||TC.saving){e.preventDefault();e.returnValue='';}});
 
 init();
 })();
