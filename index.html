@@ -953,6 +953,9 @@ function matchCardHTML(c, pos, showDetail) {
 function renderWorldcup() {
   const el = $('#scr-worldcup'); const w = curWeek(); const ph = phase();
   const completed = S.runs.find(r => r.id === S.uid)?.weeks?.[w];
+  const pending = S.run;
+  // Preserve the draw and bye points; only an untouched legacy bracket can adopt new rules.
+  if (!completed && pending?.weekId === w && !pending.done && pending.round === 1 && pending.idx === 0 && pending.audit?.v === 1 && !Object.prototype.hasOwnProperty.call(pending.audit, 'mode') && pending.audit.choices?.length === 0 && pending.audit.rounds?.length === 1) pending.audit.mode = 'unlimited-v1';
   const run = completed ? Object.assign({weekId:w,done:true}, completed) : S.run;
   const pool = poolFor(w).filter(c => !isMine(c.id));
   const doneN = doneCount('week',w);
