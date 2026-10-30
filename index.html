@@ -208,6 +208,17 @@ table.plain td:last-child{text-align:right;white-space:nowrap}
   #scr-worldcup .mcard{padding:16px}
 }
 .tc-description{white-space:pre-wrap;overflow-wrap:anywhere}.tc-links a{color:var(--accent-text);overflow-wrap:anywhere}.tc-candidate-title{margin:0}.tc-choice{min-height:48px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:18px;text-align:left;padding:20px}#scr-topics input,#scr-topics textarea{display:block;width:100%;margin-top:6px}#scr-topics li,#scr-topics h3{overflow-wrap:anywhere}
+
+/* The one-line premise is the primary voting criterion; sources are optional context. */
+#scr-topics .tc-candidate-title{font-size:clamp(24px,6vw,30px);font-weight:700;line-height:1.45;text-align:left;text-wrap:pretty;word-break:keep-all;overflow-wrap:anywhere;margin:0;padding:4px 0 8px;color:var(--fg)}
+#scr-topics .tc-reference{margin:0;padding:10px 0 0;border-top:1px solid var(--line);text-align:left;font-size:13px;color:var(--muted);align-self:stretch;min-width:0}
+#scr-topics .tc-reference summary{cursor:pointer;font-size:13px;font-weight:400;line-height:1.6;text-align:left;width:fit-content}
+#scr-topics .tc-reference-body{display:flex;flex-direction:column;gap:8px;padding-top:10px;text-align:left;min-width:0}
+#scr-topics .tc-links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;text-align:left;min-width:0}
+#scr-topics .tc-links li{display:block;margin:0;padding:0;text-align:left}
+#scr-topics .tc-links a{font-size:13px;line-height:1.6;text-align:left;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+#scr-topics .tc-description{margin:0;font-size:13px;line-height:1.7;color:var(--muted);text-align:left}
+#scr-topics .tc-choice{font-size:16px;padding:12px 16px;min-height:48px}
 </style>
 </head>
 <body>
@@ -1624,7 +1635,7 @@ const TopicDetails = (() => {
   function pack(entries,old){const used=new Set(),ids=[],topics={},details={};for(let i=0;i<entries.length;i++){const x=entries[i];let id=x.id;if(id!==undefined&&(!old?.ids.includes(id)||used.has(id)))throw Error('후보 ID가 올바르지 않거나 중복되었습니다.');if(!id){id=old?.ids.find(k=>!used.has(k)&&old.topics[k]===x.title);if(!id)id=Array.from({length:200},(_,j)=>'t'+String(j).padStart(3,'0')).find(k=>!used.has(k)&&!entries.some(e=>e.id===k)&&!old?.ids.some(k2=>k===k2&&entries.some(e=>e.title===old.topics[k2])));}used.add(id);ids.push(id);topics[id]=x.title;if(x.description||x.links.length)details[id]={description:x.description,links:x.links};}return {ids,topics,details};}
   return {url,entry,parse,entries,pack};
 })();
-function tcCandidate(c,id){const d=c.details?.[id];let out='<h3 class="tc-candidate-title">'+esc(c.topics[id])+'</h3>';if(Array.isArray(d?.links))out+='<ul class="tc-links">'+d.links.slice(0,10).map(l=>{try{const u=TopicDetails.url(l.url);return '<li><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(typeof l.label==='string'&&l.label?l.label:u)+'</a></li>';}catch(e){return '';}}).join('')+'</ul>';if(d&&typeof d.description==='string'&&d.description)out+='<p class="tc-description">'+esc(d.description)+'</p>';return out;}
+function tcCandidate(c,id){const d=c.details?.[id];let out='<h3 class="tc-candidate-title">'+esc(c.topics[id])+'</h3>',extra='';if(Array.isArray(d?.links)){const links=d.links.slice(0,10).map(l=>{try{const u=TopicDetails.url(l.url);return '<li><a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(typeof l.label==='string'&&l.label?l.label:u)+'</a></li>';}catch(e){return '';}}).join('');if(links)extra+='<ul class="tc-links">'+links+'</ul>';}if(d&&typeof d.description==='string'&&d.description)extra+='<p class="tc-description">'+esc(d.description)+'</p>';if(extra)out+='<details class="tc-reference"><summary>참고 자료 보기</summary><div class="tc-reference-body">'+extra+'</div></details>';return out;}
 /* TOPIC_DETAILS_END */
 const TC={items:null,error:'',loading:false,busy:false,open:null,ballot:null,done:false,loadError:false,dirty:false,form:{title:'',text:'',mode:'plain'},editId:null,saving:false,choiceLock:0,uid:null,entry:0,pendingEntry:0,loadPromise:null,formOpen:false};
 const tcRef=id=>S.db.doc('topicContests/'+id);
