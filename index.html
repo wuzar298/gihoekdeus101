@@ -306,6 +306,7 @@ function canSeeComments(card) {
 }
 
 function profilesInto() {
+  if (!isOps() || adminTopicRevoked || S.auth?.currentUser?.uid !== S.uid) clearAdminTopicParticipants();
   document.querySelectorAll('[data-name]').forEach(el => { const p = S.profiles[el.dataset.name]; if (p) el.textContent = p.name || p.email || '이름 없음'; });
 }
 function hasDigit(s) { return /\d/.test(s || ''); }
@@ -373,6 +374,7 @@ async function claimOwner() {
   } catch (e) { S.busy = false; gate('규칙이 아직 없습니다', 'Firebase 콘솔 → Firestore → 규칙 탭에 firestore.rules 내용을 붙여넣고 게시했는지 확인하세요. (' + (e.code || e.message) + ')'); }
 }
 async function onAuth(u) {
+  if (!u || (S.uid && u.uid !== S.uid)) clearAdminTopicParticipants(true);
   if (S.ready) { if (!u) location.reload(); return; }
   if (!u) { gateLogin(); return; }
   const email = (u.email || '').toLowerCase();
@@ -399,6 +401,7 @@ async function onAuth(u) {
     $('#gateMsg').innerHTML = `<span class="muted">${esc(email)} 계정은 아직 멤버가 아닙니다. 계란님이나 우재 PD에게 이 이메일을 추가해 달라고 하세요.</span><div style="margin-top:12px"><button class="btn sm" data-act="logout">다른 계정으로</button></div>`;
     showScreen('gate'); $('#tabs').hidden = true; return;
   }
+  adminTopicRevoked = false;
   S.role = S.isOwner ? 'owner' : (m.role || 'member'); S.canWrite = true;
   try { await S.db.doc('profiles/' + S.uid).set({ name: S.name, email, photo: u.photoURL || '', updatedAt: Date.now() }, { merge: true }); } catch (e) {}
   if (m.name !== S.name) { try { await S.db.doc('members/' + email).update({ name: S.name }); } catch (e) {} }
@@ -408,9 +411,9 @@ async function onAuth(u) {
 }
 function subscribeAll() {
   const db = S.db, uid = S.uid;
-  db.doc('settings/main').onSnapshot(s => { S.settings = s.exists ? s.data() : null; S.settingsLoaded = true; if (S.settings && (ownerOf(S.settings) === S.email) !== S.isOwner) { location.reload(); return; } render(); }, e => toast('설정을 읽지 못했습니다: ' + e.code));
+  db.doc('settings/main').onSnapshot(s => { S.settings = s.exists ? s.data() : null; S.settingsLoaded = true; if (S.settings && (ownerOf(S.settings) === S.email) !== S.isOwner) { clearAdminTopicParticipants(true); location.reload(); return; } render(); }, e => toast('설정을 읽지 못했습니다: ' + e.code));
   db.collection('profiles').onSnapshot(q => { const p = {}; q.docs.forEach(d => p[d.id] = d.data()); S.profiles = p; profilesInto(); }, e => {});
-  db.collection('members').onSnapshot(q => { S.members = q.docs.map(d => Object.assign({ email: d.id }, d.data())); const me=S.members.find(m=>m.email===S.email); if(!S.isOwner && (!me || (me.role||'member')!==S.role)) {location.reload();return;} if (S.tab === 'admin') render(); }, e => {});
+  db.collection('members').onSnapshot(q => { S.members = q.docs.map(d => Object.assign({ email: d.id }, d.data())); const me=S.members.find(m=>m.email===S.email); if(!S.isOwner && (!me || (me.role||'member')!==S.role)) {clearAdminTopicParticipants(true);location.reload();return;} if (S.tab === 'admin') render(); }, e => {});
   setInterval(() => { if (S.ready && S.settings) render(); }, 60000);
   db.collection('cards').onSnapshot(q => { S.cards = q.docs.map(d => Object.assign({ id: d.id }, d.data())); S.cards.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); selfHealAuthor(); render(); }, e => toast('카드를 읽지 못했습니다: ' + e.code));
   // Comments are subscribed per card only after the access gate; never download all comments.
@@ -494,6 +497,7 @@ function render() {
   keepReadingState(() => {
   refreshComments();
   if (!S.ready) return;
+  if (!isOps()) clearAdminTopicParticipants();
   $('#tabAdmin').hidden = !isOps();
   if (S.tab === 'admin' && !isOps()) S.tab = 'board';
   renderHeader();
@@ -1265,7 +1269,54 @@ async function selectCard(id, on) {
 }
 
 /* admin */
+/* Topic completion lists use submitted votes only, never private progress or ballot details. */
+let adminTopicGeneration = 0;
+let adminTopicRevoked = false;
+function clearAdminTopicParticipants(revoke = false) {
+  adminTopicGeneration++;
+  if (revoke) adminTopicRevoked = true;
+  const box = $('#adminTopicParticipants');
+  if (box) box.replaceChildren();
+}
+async function renderAdminTopicParticipants(box) {
+  if (!isOps() || adminTopicRevoked || !S.uid || S.auth?.currentUser?.uid !== S.uid || S.tab !== 'admin' || !box?.isConnected || $('#adminTopicParticipants') !== box) return;
+  const generation = ++adminTopicGeneration, uid = S.uid;
+  const current = () => isOps() && !adminTopicRevoked && S.uid === uid && S.auth?.currentUser?.uid === uid && S.tab === 'admin' && box.isConnected && $('#adminTopicParticipants') === box && generation === adminTopicGeneration;
+  box.innerHTML = '<div class="between"><h3>소재 월드컵 완료 참여자</h3><button type="button" class="btn sm" data-topic-participants-refresh>새로고침</button></div><p class="small muted">계란님·운영자 전용 · 최종 제출을 검증한 완료자만 표시합니다. 개인별 선택·우승 소재는 표시하지 않습니다.</p><div data-topic-participants-list role="status">불러오는 중...</div>';
+  box.querySelector('[data-topic-participants-refresh]').onclick = () => { if (current()) renderAdminTopicParticipants(box); };
+  const list = box.querySelector('[data-topic-participants-list]');
+  const errorText = e => esc(e?.code || '읽기 또는 검증 오류');
+  try {
+    if (!current()) return;
+    const q = await S.db.collection('topicContests').get({ source: 'server' });
+    if (!current()) return;
+    const time = t => typeof t?.toMillis === 'function' ? t.toMillis() : typeof t === 'number' ? t : (t?.seconds || 0) * 1000 + (t?.nanoseconds || 0) / 1000000;
+    const contests = q.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => time(b.createdAt) - time(a.createdAt) || a.id.localeCompare(b.id));
+    if (!contests.length) { list.innerHTML = '<p class="small muted">아직 소재 월드컵 회차가 없습니다.</p>'; return; }
+    // Keep every contest visible, even if one nested votes read fails.
+    list.innerHTML = contests.map(c => '<section class="card stack"><h4>' + esc(c.title || '제목 없음') + '</h4><p class="small muted">v' + esc(c.v) + ' · ' + esc({draft:'초안',open:'투표 중',closed:'마감 · 결과 비공개',published:'결과 공개'}[c.state] || c.state || '상태 미상') + '</p><div data-topic-completion role="status">완료자 불러오는 중...</div></section>').join('');
+    const slots = [...list.querySelectorAll('[data-topic-completion]')];
+    await Promise.all(contests.map(async (c, i) => {
+      try {
+        if (!current()) return;
+        if (!TopicCore.validContest(c)) throw { code: 'invalid-contest' };
+        const votes = await S.db.collection('topicContests').doc(c.id).collection('votes').get({ source: 'server' });
+        if (!current()) return;
+        const ids = votes.docs.filter(d => TopicCore.verify(c, d.id, d.data())).map(d => d.id).sort();
+        const rejected = votes.docs.length - ids.length;
+        slots[i].innerHTML = '<p>유효 완료 ' + ids.length + '명</p>' + (ids.length ? '<ul>' + ids.map(id => '<li data-name="' + esc(id) + '">이름 확인 중 (프로필 미등록 시 표시 불가)</li>').join('') + '</ul>' : '<p class="small muted">아직 유효한 최종 제출자가 없습니다.</p>') + (rejected ? '<p class="small muted">검증에서 제외된 제출 ' + rejected + '건</p>' : '');
+        if (current()) profilesInto();
+      } catch (e) {
+        if (current()) slots[i].innerHTML = '<p role="alert">완료자 확인 실패: ' + errorText(e) + '. 위 새로고침으로 다시 시도하세요.</p>';
+      }
+    }));
+  } catch (e) {
+    if (current()) list.innerHTML = '<p role="alert">회차 목록 읽기 실패: ' + errorText(e) + '. 새로고침으로 다시 시도하세요.</p>';
+  }
+}
+
 async function renderAdmin() {
+  if (!isOps() || adminTopicRevoked || S.auth?.currentUser?.uid !== S.uid) { clearAdminTopicParticipants(); return; }
   const el = $('#scr-admin'); const s = S.settings; const w = curWeek(); const ph = phase();
   const runIds = S.runs.map(r => r.id);
   const doneIds = S.runs.filter(r => r.weeks && r.weeks[w]).map(r => r.id);
@@ -1280,6 +1331,7 @@ async function renderAdmin() {
     <div class="card stack"><h3>이번 회차 참여 <span class="muted small" style="font-weight:400">월드컵 완료 ${doneIds.length}명</span></h3>
       ${runIds.length ? `<table class="plain">${runIds.map(id => `<tr><td data-name="${esc(id)}">…</td><td>${doneIds.includes(id) ? '<span class="pill good">완료</span>' : '<span class="pill">미완료</span>'}</td></tr>`).join('')}</table>` : '<p class="small muted">아직 월드컵을 한 사람이 없습니다.</p>'}
       <div id="adminAuthors"></div></div>
+    <div id="adminTopicParticipants" class="card stack"></div>
     <div class="card stack"><h3>멤버 관리 <span class="muted small" style="font-weight:400">구글 계정 이메일로 초대</span></h3>
       <table class="plain">${S.members.map(m => { const own = m.email === ownerOf(s); const can = !own && (S.isOwner || (isOps() && m.role !== 'ops')); return `<tr><td>${esc(m.name || '')}<div class="small muted">${esc(m.email)}</div></td><td>${own ? '<span class="pill on">계란님</span>' : `<span class="pill ${m.role === 'ops' ? 'acc' : ''}">${m.role === 'ops' ? '운영자' : '멤버'}</span> ${can ? `<button class="btn sm ghost" data-act="memberRole" data-id="${esc(m.email)}" data-v="${m.role === 'ops' ? 'member' : 'ops'}">${m.role === 'ops' ? '멤버로' : '운영자로'}</button><button class="btn sm ghost" data-act="memberRemove" data-id="${esc(m.email)}">✕</button>` : ''}`}</td></tr>`; }).join('')}</table>
       <div class="row"><input id="m_email" placeholder="구글 계정 이메일" style="flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px"><select id="m_role" style="background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px"><option value="member">멤버</option><option value="ops">운영자</option></select><button class="btn sm primary" data-act="memberAdd">추가</button></div>
@@ -1296,6 +1348,7 @@ async function renderAdmin() {
     <p class="small muted">시간은 보는 사람 기기 기준(한국)입니다. 카드·시안·코멘트 작성자는 계란님과 운영자에게만 표시됩니다(일반 멤버의 타인 작성자 정보 접근은 Firestore 규칙으로 차단). 월드컵 대진 화면에서는 계란님과 운영자에게도 보이지 않습니다. 진행 중인 월드컵 표는 본인만 볼 수 있으며 완료 시에만 합산에 들어갑니다.</p>
   </div>`;
   profilesInto();
+  void renderAdminTopicParticipants($('#adminTopicParticipants'));
   if (isOps()) {
     try {
       const q = await S.db.collection('authors').get(); const rows = q.docs.map(d => { const data = d.data(); const n = S.cards.filter(c => c.weekId === w && (data.cards || {})[c.id] === w).length; return { id: d.id, n }; });
@@ -1358,7 +1411,7 @@ document.addEventListener('click', e => {
     case 'unselect': selectCard(id, false); break;
     case 'override': setOverride(v || null); break;
     case 'login': login(); break;
-    case 'logout': S.auth.signOut().then(() => location.reload()); break;
+    case 'logout': clearAdminTopicParticipants(true); S.auth.signOut().then(() => location.reload()); break;
     case 'memberAdd': { const em = ($('#m_email').value || '').trim().toLowerCase(); const role = $('#m_role').value; if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { toast('이메일 형식을 확인하세요'); break; } S.db.doc('members/' + em).set({ role, name: '', addedAt: Date.now(), addedBy: S.email }).then(() => { toast('추가했습니다. 그 계정으로 로그인하면 바로 들어옵니다'); $('#m_email').value = ''; }).catch(e => toast('실패: ' + (e.code || e.message))); break; }
     case 'memberRole': S.db.doc('members/' + id).update({ role: v }).then(() => toast('바꿨습니다')).catch(e => toast('실패: ' + (e.code || e.message))); break;
     case 'memberRemove': { if (t.dataset.sure) S.db.doc('members/' + id).delete().then(() => toast('뺐습니다')).catch(e => toast('실패: ' + (e.code || e.message))); else { t.dataset.sure = '1'; t.textContent = '정말 빼기'; } break; }
