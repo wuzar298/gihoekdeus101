@@ -158,6 +158,7 @@ details.more[open] summary::before{content:"▾"}
 .kv dt{color:var(--muted);font-size:12.5px;padding-top:1px}
 .kv dd{margin:0;white-space:pre-wrap;word-break:break-word;min-width:0}
 .decide{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:8px}
+#scr-worldcup .decide.wc-unlimited{grid-template-columns:repeat(2,minmax(0,1fr))}
 .decide .btn{padding:10px 4px;font-size:13.5px}
 .bar{height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent);width:0}
@@ -877,12 +878,37 @@ function applyDecision(run, choice, dual) {
   }
   return false;
 }
+// WORLD CUP only. Every continuing round strictly shrinks the survivor pool.
+function unlimitedWorldcup(run) { return !!run && !!run.weekId && run.audit?.mode === 'unlimited-v1'; }
+function applyWorldcupDecision(run, choice) {
+  if (!unlimitedWorldcup(run)) return applyDecision(run, choice, run.audit?.dual ?? S.settings.dualPass ?? 2);
+  if (run.done || !['top','bottom','both','neither'].includes(choice) || run.round > run.seen.length - 1) return false;
+  const pair = run.pairs[run.idx]; if (!pair) return false;
+  const pass = id => { run.next.push(id); run.points[id] = (run.points[id] || 0) + roundPts(run.round); };
+  if (choice === 'top' || choice === 'both') pass(pair[0]);
+  if (choice === 'bottom' || choice === 'both') pass(pair[1]);
+  run.audit.choices.push(choice); run.idx++;
+  if (run.idx < run.pairs.length) return false;
+  if (run.next.length <= 1 || run.next.length === run.remaining.length) {
+    run.done = true; run.finishedAt = Date.now(); return true;
+  }
+  run.round++; startRound(run, run.next, run.audit.dual); return false;
+}
+function worldcupOutcomeHTML(run) {
+  if (!unlimitedWorldcup(run) && run.audit?.mode !== 'unlimited-v1') return '';
+  const result = verifiedVote(run, run.seen, true);
+  if (!result) return '<p class="note">완료 기록을 확인할 수 없습니다. 운영자에게 문의해주세요. 기록은 보존됩니다.</p>';
+  const ids = result.winners;
+  const title = ids.length === 0 ? '우승 없음' : ids.length === 1 ? '우승 1장' : '공동 우승 ' + ids.length + '장';
+  return '<div class="note"><b>' + title + '</b>' + (ids.length ? '<ul>' + ids.map(id => '<li>' + esc(cardById(id)?.title || id) + '</li>').join('') + '</ul>' : '<p>모든 카드가 이번 대진에서 탈락했습니다.</p>') + '<p class="small">원본 카드와 코멘트는 그대로 보존됩니다.</p></div>';
+}
 async function startRun() {
   if (S.busy) return;
   const w = curWeek(); const pool = poolFor(w).filter(c => !isMine(c.id)).map(c => c.id);
+  if (pool.length > 200) { toast('월드컵은 최대 200장까지 진행할 수 있습니다'); return; }
   if (pool.length < 2) { toast('월드컵을 하려면 내 카드를 뺀 카드가 2장 이상 있어야 합니다'); return; }
-  if (phase() !== 'worldcup' || myRunDone(w)) { toast('진행 시간이 아니거나 이미 완료했습니다'); return; }
-  const run = { weekId: w, round: 1, points: {}, seen: pool.slice(), done: false, startedAt: Date.now(), audit:{v:1,dual:S.settings.dualPass ?? 2,rounds:[],choices:[]} };
+  if (phase() !== 'worldcup' || myRunDone(w) || (S.run?.weekId === w && S.run.done)) { toast('진행 시간이 아니거나 이미 완료했습니다'); return; }
+  const run = { weekId: w, round: 1, points: {}, seen: pool.slice(), done: false, startedAt: Date.now(), audit:{v:1,mode:'unlimited-v1',dual:S.settings.dualPass ?? 2,rounds:[],choices:[]} };
   startRound(run, pool, S.settings.dualPass ?? 2);
   try { await S.db.runTransaction(async tx=>{const ref=S.db.doc('roundLocks/'+w);const snap=await tx.get(ref);if(!snap.exists)tx.set(ref,{locked:true});}); } catch(e){toast('대진 잠금 실패: '+(e.code||e.message));return;}
   await saveRun(run);
@@ -897,10 +923,12 @@ async function saveRun(run) {
 async function decide(choice) {
   if (S.busy || !S.run || S.run.done || phase() !== 'worldcup') return;
   const run = JSON.parse(JSON.stringify(S.run)); if (!run.pairs[run.idx]) return;
-  const done = applyDecision(run, choice, S.settings.dualPass ?? 2);
+  if (run.weekId !== curWeek() || !['top','bottom','both','neither'].includes(choice) || (!unlimitedWorldcup(run) && choice === 'neither')) return;
+  const done = applyWorldcupDecision(run, choice);
   if (await saveRun(run)) { if (done) await publishRun(run); }
 }
 async function publishRun(run) {
+  if (unlimitedWorldcup(run) && (!run.done || !verifiedVote(run, run.seen, true))) { toast('완료 기록 검증 실패: 기록은 보존됩니다. 운영자에게 문의해주세요'); return; }
   try {
     const ref = S.db.doc('runs/' + S.uid);
     await S.db.runTransaction(async tx => {
@@ -923,7 +951,9 @@ function matchCardHTML(c, pos, showDetail) {
   </div>`;
 }
 function renderWorldcup() {
-  const el = $('#scr-worldcup'); const w = curWeek(); const ph = phase(); const run = S.run;
+  const el = $('#scr-worldcup'); const w = curWeek(); const ph = phase();
+  const completed = S.runs.find(r => r.id === S.uid)?.weeks?.[w];
+  const run = completed ? Object.assign({weekId:w,done:true}, completed) : S.run;
   const pool = poolFor(w).filter(c => !isMine(c.id));
   const doneN = doneCount('week',w);
   if (ph === 'upload') { el.innerHTML = `<div class="stack"><h2>기획 월드컵</h2><div class="empty"><b>다음 월드컵은 ${esc(weekLabel(w))}</b>당일 00:00부터 ${S.settings.endHour ?? 18}:00까지 한 판씩 합니다. 지금 모인 카드 ${poolFor(w).length}장.<br>${esc(S.settings.schedule || '')}</div></div>`; return; }
@@ -932,26 +962,28 @@ function renderWorldcup() {
     el.innerHTML = `<div class="stack"><h2>기획 월드컵 <span class="muted small" style="font-weight:400">${esc(weekLabel(w))}</span></h2>
       <div class="card stack"><div class="roundhead"><div class="big">${pool.length}<em>강</em></div><span class="pill">완료 ${doneN}명</span></div>
       <p class="muted small">내 카드를 뺀 ${pool.length}장으로 한 판. 첫 라운드는 썸네일·제목·로그라인·누가 왜 누르나만 보고, ${S.settings.detailFrom || 2}라운드부터 카드 전체를 보고 코멘트를 남길 수 있습니다. 10~15분 걸리고, ${forcedRound() ? '운영자가 수동으로 마감하기 전까지' : `오늘 ${S.settings.endHour ?? 18}:00까지`} 끝내야 합산됩니다.</p>
-      <ul class="small muted" style="margin:0;padding-left:18px"><li>n번째 통과에 n점 (최대 5점). 전원 합산으로 순위가 나옵니다.</li><li>'둘 다 통과'는 라운드마다 ${S.settings.dualPass ?? 2}회, 4강부터는 없습니다.</li><li>중간에 나가도 이어서 할 수 있습니다.</li></ul>
+      <ul class="small muted" style="margin:0;padding-left:18px"><li>통과·부전승에 라운드당 최대 5점. 전원 합산으로 순위가 나옵니다.</li><li>'둘 다 통과'·'둘 다 탈락'은 결승까지 횟수 제한이 없습니다. 탈락은 이번 대진에만 적용되며 원본 카드는 삭제되지 않습니다.</li><li>한 라운드에서 탈락자가 없으면 남은 카드가 공동 우승합니다. 생존 0장은 우승 없음, 1장은 우승으로 종료합니다.</li><li>중간에 나가도 이어서 할 수 있습니다.</li></ul>
       <button class="btn primary wide" data-act="startRun" ${S.canWrite === false || pool.length < 2 ? 'disabled' : ''}>시작하기</button></div></div>`;
     return;
   }
   if (!run.done && !run.audit) { el.innerHTML = '<div class="note">업데이트 전 진행 기록입니다. 카드와 기존 완료 기록은 보존됩니다. 이번 진행만 새로 시작해주세요.</div><button class="btn" data-act="restartRun">새 대진 시작</button>'; return; }
-  if (run.done && !run.audit && !myRunDone(w)) { el.innerHTML = '<div class="note">업데이트 전 투표가 집계에 등록되지 않았습니다. 현재 회차 투표만 다시 진행해주세요.</div><button class="btn" data-act="restartRun">이번 투표 다시 시작</button>'; return; }
-  if (run.done && !myRunDone(w)) { el.innerHTML = '<div class="note">투표는 끝났지만 집계 등록이 아직 완료되지 않았습니다.</div><button class="btn primary" data-act="retryRun">집계 등록 재시도</button>'; return; }
-  if (run.done) { el.innerHTML = `<div class="stack"><h2>기획 월드컵</h2><div class="card stack"><div class="roundhead"><div class="big">완료</div><span class="pill good">완료 ${doneN}명</span></div><p class="muted small">결과는 결과 공개 때 전원 합산으로 나옵니다. 이제 게시판에서 다른 사람의 코멘트를 보고 남길 수 있습니다.</p><button class="btn wide" data-act="goBoard">게시판으로</button></div></div>`; return; }
+  if (run.done && !run.audit && !myRunDone(w)) { el.innerHTML = '<div class="note">업데이트 전 완료 기록을 보존했습니다. 미등록 기록은 운영자에게 확인해주세요.</div>'; return; }
+  if (run.done && !myRunDone(w)) { el.innerHTML = worldcupOutcomeHTML(run) + '<div class="note">투표는 끝났지만 집계 등록이 아직 완료되지 않았습니다.</div><button class="btn primary" data-act="retryRun">집계 등록 재시도</button>'; return; }
+  if (run.done) { el.innerHTML = `<div class="stack"><h2>기획 월드컵</h2><div class="card stack"><div class="roundhead"><div class="big">완료</div><span class="pill good">완료 ${doneN}명</span></div>${worldcupOutcomeHTML(run)}<p class="muted small">결과는 결과 공개 때 전원 합산으로 나옵니다. 이제 게시판에서 다른 사람의 코멘트를 보고 남길 수 있습니다.</p><button class="btn wide" data-act="goBoard">게시판으로</button></div></div>`; return; }
   const pair = run.pairs[run.idx]; const a = cardById(pair[0]), b = cardById(pair[1]);
   if (!a || !b) { el.innerHTML = `<div class="stack"><h2>기획 월드컵</h2><div class="note">카드가 삭제되어 대진을 다시 짭니다.</div><button class="btn" data-act="restartRun">다시 시작</button></div>`; return; }
   const total = run.pairs.length, cur = run.idx + 1, pct = Math.round((run.idx / total) * 100);
+  const unlimited = unlimitedWorldcup(run);
   const final = run.remaining.length === 2; const showDetail = run.round >= (S.settings.detailFrom || 2);
   const label = final ? '결승' : `${run.round}라운드`;
   el.innerHTML = `<div class="stack">
     <div class="roundhead"><div class="big">${esc(label)} <em>${run.remaining.length}</em>장</div><span class="muted small num">매치 ${cur}/${total}</span></div>
+    ${unlimited ? '<p class="small muted">둘 다 통과·둘 다 탈락: 무제한. 탈락은 이번 대진에만 적용되며 원본 카드는 삭제되지 않습니다. 라운드 전체에 탈락자가 없으면 공동 우승으로 종료합니다.</p>' : `<div class="note">업데이트 전 시작한 대진은 기존 규칙을 유지합니다. 둘 다 통과는 라운드당 최대 ${run.audit.dual}회이며 4강부터 사용할 수 없습니다. 둘 다 탈락은 새 대진부터 적용됩니다.</div>`}
     <div class="bar"><i style="width:${pct}%"></i></div>
     ${showDetail ? '' : '<p class="small muted">첫 라운드는 포장만 봅니다. 폰 홈 피드에서 누를 것 같은 쪽을 고르세요.</p>'}
     ${run.byeId && run.idx === 0 ? `<p class="small muted">연습생 ${esc((cardById(run.byeId) || {}).no || '')}는 부전승으로 올라갔습니다.</p>` : ''}
     <div class="match">${matchCardHTML(a, 'a', showDetail)}<div class="vs">VS</div>${matchCardHTML(b, 'b', showDetail)}</div>
-    <div class="decide"><button class="btn" data-act="decide" data-v="top" ${S.busy ? 'disabled' : ''}><span class="mobile-word">위</span><span class="desktop-word">왼쪽</span> 통과</button><button class="btn ${run.dualLeft > 0 ? 'primary' : ''}" data-act="decide" data-v="both" ${run.dualLeft > 0 && !S.busy ? '' : 'disabled'}>둘 다 통과${run.dualLeft > 0 ? ` · ${run.dualLeft}회` : final ? '' : ' · 없음'}</button><button class="btn" data-act="decide" data-v="bottom" ${S.busy ? 'disabled' : ''}><span class="mobile-word">아래</span><span class="desktop-word">오른쪽</span> 통과</button></div>
+    <div class="decide ${unlimited ? 'wc-unlimited' : ''}"><button class="btn" data-act="decide" data-v="top" ${S.busy ? 'disabled' : ''}><span class="mobile-word">위</span><span class="desktop-word">왼쪽</span> 통과</button><button class="btn ${(unlimited || run.dualLeft > 0) ? 'primary' : ''}" data-act="decide" data-v="both" ${(unlimited || run.dualLeft > 0) && !S.busy ? '' : 'disabled'}>둘 다 통과${unlimited ? '' : run.dualLeft > 0 ? ` · ${run.dualLeft}회` : final ? '' : ' · 없음'}</button><button class="btn" data-act="decide" data-v="bottom" ${S.busy ? 'disabled' : ''}><span class="mobile-word">아래</span><span class="desktop-word">오른쪽</span> 통과</button>${unlimited ? `<button class="btn danger" data-act="decide" data-v="neither" ${S.busy ? 'disabled' : ''}>둘 다 탈락</button>` : ''}</div>
     <p class="small muted" style="text-align:center"><span class="mobile-word">위 통과 = 위 카드가 올라감</span><span class="desktop-word">왼쪽 통과 = 왼쪽 카드가 올라감</span> · ${showDetail ? '카드 전체를 펼쳐 끝까지 볼 기획인지 보세요' : '지금은 썸네일과 제목만 봅니다'}</p>
   </div>`;
 }
@@ -1172,7 +1204,7 @@ function selfHealEntryAuthor() {
 /* results */
 function standings(w) {
   if (!isOps()) { const r=S.publicResults['w_'+w]; return {n:r ? r.n : 0, rows:r && r.v===2 && Array.isArray(r.cardIds) ? r.cardIds.map(id=>S.cards.find(c=>c.id===id&&c.weekId===w&&!c.urgent)).filter(Boolean).map(card=>({card})) : []}; }
-  const done = S.runs.map(r => r.weeks && r.weeks[w]).filter(Boolean).map(v => verifiedVote(v, poolFor(w).map(c => c.id))).filter(Boolean); const n = done.length;
+  const done = S.runs.map(r => r.weeks && r.weeks[w]).filter(Boolean).map(v => verifiedVote(v, poolFor(w).map(c => c.id), true)).filter(Boolean); const n = done.length;
   const cards = S.cards.filter(c => c.weekId === w && !c.urgent);
   const rows = cards.map(c => { let total = 0, exp = 0; done.forEach(r => { if (r.seen && r.seen.includes(c.id)) { exp++; total += (r.points && r.points[c.id]) || 0; } }); return { card: c, total, exp, norm: exp ? total / exp * n : 0 }; });
   rows.sort((x, y) => y.norm - x.norm || y.total - x.total || (x.card.createdAt || 0) - (y.card.createdAt || 0));
@@ -1251,7 +1283,7 @@ async function renderAdmin() {
       <div class="field"><label>월드컵 요일</label><div class="row" id="wcDaysBox">${[0, 1, 2, 3, 4, 5, 6].map(d => `<label class="check" style="gap:4px"><input type="checkbox" data-wcday="${d}" ${wcDays().includes(d) ? 'checked' : ''}> ${DAYS[d]}</label>`).join('')}</div></div>
       <div class="two"><div class="field"><label for="s_endHour">월드컵 마감 시각 (시)</label><input id="s_endHour" type="number" min="1" max="23" value="${s.endHour ?? 18}"></div><div class="field"><label for="s_target">회차 목표 카드 수</label><input id="s_target" type="number" min="4" max="64" value="${s.target ?? 16}"></div></div>
       <div class="two"><div class="field"><label for="s_perPerson">1인 카드 상한</label><input id="s_perPerson" type="number" min="1" max="20" value="${s.perPerson ?? 3}"></div><div class="field"><label for="s_ownerCards">계란님 카드 수</label><input id="s_ownerCards" type="number" min="0" max="20" value="${s.ownerCards ?? 2}"></div></div>
-      <div class="two"><div class="field"><label for="s_dualPass">둘 다 통과 (라운드당)</label><input id="s_dualPass" type="number" min="0" max="10" value="${s.dualPass ?? 2}"></div><div class="field"><label for="s_detailFrom">상세 공개 라운드</label><input id="s_detailFrom" type="number" min="1" max="6" value="${s.detailFrom ?? 2}"></div></div>
+      <div class="two"><div class="field"><label>월드컵 선택 규칙</label><p class="small muted">둘 다 통과·둘 다 탈락 무제한. 탈락 없는 라운드는 공동 우승으로 종료. 원본 카드는 보존됩니다. 기존 진행 기록은 기존 규칙을 유지합니다.</p></div><div class="field"><label for="s_detailFrom">상세 공개 라운드</label><input id="s_detailFrom" type="number" min="1" max="6" value="${s.detailFrom ?? 2}"></div></div>
       <div class="two"><div class="field"><label for="s_pkPerPerson">썸네일 배틀 1인 시안 수</label><input id="s_pkPerPerson" type="number" min="1" max="10" value="${s.pkPerPerson ?? 3}"></div><div class="field"><label for="s_pkDualPass">배틀 둘 다 통과</label><input id="s_pkDualPass" type="number" min="0" max="5" value="${s.pkDualPass ?? 1}"></div></div>
       <div class="field"><label for="s_schedule">일정 안내 문구</label><input id="s_schedule" value="${esc(s.schedule || '')}"></div>
       <div class="row"><button class="btn" data-act="saveSettings">설정 저장</button><span class="small muted">자동 진행 중에는 요일 변경 시 회차가 다시 계산됩니다. 회차 고정 중에는 ‘자동으로’로 해제할 때까지 유지됩니다.</span></div></div>
@@ -1274,7 +1306,7 @@ async function saveSettings() {
   const g = id => $('#' + id).value; const n = (id, d) => { const v = parseInt(g(id), 10); return isNaN(v) ? d : v; };
   const days = [...document.querySelectorAll('[data-wcday]')].filter(i => i.checked).map(i => parseInt(i.dataset.wcday, 10));
   if (!days.length) { toast('월드컵 요일을 하나 이상 고르세요'); return; }
-  try { await S.db.doc('settings/main').update({ wcDays: days, endHour: Math.min(23, Math.max(1, n('s_endHour', 18))), target: n('s_target', 16), schedule: g('s_schedule').trim(), perPerson: n('s_perPerson', 3), ownerCards: n('s_ownerCards', 2), dualPass: n('s_dualPass', 2), detailFrom: n('s_detailFrom', 2), pkPerPerson: n('s_pkPerPerson', 3), pkDualPass: n('s_pkDualPass', 1) }); toast('저장했습니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
+  try { await S.db.doc('settings/main').update({ wcDays: days, endHour: Math.min(23, Math.max(1, n('s_endHour', 18))), target: n('s_target', 16), schedule: g('s_schedule').trim(), perPerson: n('s_perPerson', 3), ownerCards: n('s_ownerCards', 2), detailFrom: n('s_detailFrom', 2), pkPerPerson: n('s_pkPerPerson', 3), pkDualPass: n('s_pkDualPass', 1) }); toast('저장했습니다'); } catch (e) { toast('실패: ' + (e.code || e.message)); }
 }
 async function ownerSave() {
   const em = ($('#o_email').value || '').trim().toLowerCase();
@@ -1372,7 +1404,43 @@ function refreshComments() {
 }
 // Recompute scores from pairings and choices. A forged points map is ignored.
 // This is an internal-team integrity check, not server attestation of UI activity.
-function verifiedVote(v, eligible) {
+function verifiedVote(v, eligible, allowUnlimited = false) {
+  if (!v?.audit || !Object.prototype.hasOwnProperty.call(v.audit, 'mode')) return verifiedLegacyVote(v, eligible);
+  if (!allowUnlimited || v.audit.mode !== 'unlimited-v1') return null;
+  try {
+    const a = v.audit, seen = v.seen;
+    if (!Array.isArray(seen) || seen.length < 2 || seen.length > 200 || new Set(seen).size !== seen.length || seen.some(id => typeof id !== 'string' || !eligible.includes(id))) return null;
+    if (a.v !== 1 || !Number.isInteger(a.dual) || a.dual < 0 || a.dual > 100 || !Array.isArray(a.rounds) || !Array.isArray(a.choices) || a.rounds.length < 1 || a.rounds.length > seen.length - 1) return null;
+    let remaining = seen.slice(), at = 0, terminated = false;
+    const points = Object.create(null);
+    for (let r = 0; r < a.rounds.length; r++) {
+      if (terminated || remaining.length < 2) return null;
+      const pairs = a.rounds[r]?.pairs;
+      if (!Array.isArray(pairs) || pairs.length !== Math.ceil(remaining.length / 2)) return null;
+      const flat = [], next = [];
+      let byes = 0;
+      for (const p of pairs) {
+        if (!p || Array.isArray(p) || (p.length !== 1 && p.length !== 2) || Object.keys(p).sort().join(',') !== (p.length === 1 ? '0,length' : '0,1,length')) return null;
+        if (p.length === 1) byes++;
+        for (let i = 0; i < p.length; i++) flat.push(p[i]);
+      }
+      if (byes !== remaining.length % 2 || flat.length !== remaining.length || new Set(flat).size !== flat.length || flat.some(id => !remaining.includes(id))) return null;
+      const pass = id => { next.push(id); points[id] = (points[id] || 0) + Math.min(r + 1, 5); };
+      pairs.filter(p => p.length === 1).forEach(p => pass(p[0]));
+      for (const p of pairs.filter(p => p.length === 2)) {
+        const choice = a.choices[at++];
+        if (!['top','bottom','both','neither'].includes(choice)) return null;
+        if (choice === 'top' || choice === 'both') pass(p[0]);
+        if (choice === 'bottom' || choice === 'both') pass(p[1]);
+      }
+      terminated = next.length <= 1 || next.length === remaining.length;
+      remaining = next;
+    }
+    if (!terminated || at !== a.choices.length || Object.values(points).some(p => p > 5 * (seen.length - 1))) return null;
+    return {seen, points, winners:remaining};
+  } catch(e) { return null; }
+}
+function verifiedLegacyVote(v, eligible) {
   try {
     if(!v || !Array.isArray(v.seen) || v.seen.length<2 || v.seen.length>200) return null;
     const set=new Set(v.seen); if(set.size!==v.seen.length || v.seen.some(id=>typeof id!=='string'||!eligible.includes(id)))return null;
@@ -1436,8 +1504,8 @@ async function publishResults() {
     S.runs=data(fresh[0]);S.pkPublic=data(fresh[1]);S.cards=data(fresh[2]);S.battles=data(fresh[3]);
     const w=curWeek(), weeks=[...new Set(S.cards.map(c=>c.weekId))].filter(x=>x<w||(x===w&&phase()==='results'));
     let n=0,invalid=0,legacy=0;
-    const summarize=(votes,eligible)=>{ const checked=votes.map(v=>verifiedVote(v,eligible)); invalid+=checked.filter(v=>!v).length; legacy+=checked.filter(v=>v&&v.legacy).length; const ok=checked.filter(Boolean), scores={}; eligible.forEach(id=>{let total=0,exp=0;ok.forEach(v=>{if(v.seen.includes(id)){exp++;total+=v.points[id]||0;}});scores[id]={total,exp,norm:exp?total/exp*ok.length:0};});return {n:ok.length,scores}; };
-    for(const id of weeks){const cards=poolFor(id), data=summarize(S.runs.map(r=>r.weeks&&r.weeks[id]).filter(Boolean),cards.map(c=>c.id));const publication=publicWeekResult(cards,data);await S.db.doc('results/w_'+id).set(Object.assign({kind:'week',refId:id,updatedAt:Date.now()},publication));n++;}
+    const summarize=(votes,eligible,allowUnlimited=false)=>{ const checked=votes.map(v=>verifiedVote(v,eligible,allowUnlimited)); invalid+=checked.filter(v=>!v).length; legacy+=checked.filter(v=>v&&v.legacy).length; const ok=checked.filter(Boolean), scores={}; eligible.forEach(id=>{let total=0,exp=0;ok.forEach(v=>{if(v.seen.includes(id)){exp++;total+=v.points[id]||0;}});scores[id]={total,exp,norm:exp?total/exp*ok.length:0};});return {n:ok.length,scores}; };
+    for(const id of weeks){const cards=poolFor(id), data=summarize(S.runs.map(r=>r.weeks&&r.weeks[id]).filter(Boolean),cards.map(c=>c.id),true);const publication=publicWeekResult(cards,data);await S.db.doc('results/w_'+id).set(Object.assign({kind:'week',refId:id,updatedAt:Date.now()},publication));n++;}
     for(const b of S.battles.filter(b=>b.state==='closed')) {
       const q=await S.db.collection('entries').where('battleId','==',b.id).get();
       const data=summarize(S.pkPublic.map(r=>r.battles&&r.battles[b.id]).filter(Boolean),q.docs.map(d=>d.id));
